@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import { SessionProvider } from "@/components/team/session";
 
 export const metadata: Metadata = {
   title: "J2A Sales Machine",
@@ -15,10 +16,12 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className="min-h-screen bg-ink-950 bg-grain font-sans text-zinc-100 antialiased">
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 overflow-x-hidden md:pl-0">{children}</main>
-        </div>
+        <SessionProvider>
+          <div className="flex min-h-screen">
+            <Sidebar />
+            <main className="flex-1 overflow-x-hidden md:pl-0">{children}</main>
+          </div>
+        </SessionProvider>
       </body>
     </html>
   );

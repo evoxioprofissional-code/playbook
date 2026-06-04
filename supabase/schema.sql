@@ -1,6 +1,44 @@
--- J2A Sales Machine — esquema opcional para persistência no Supabase.
--- O app funciona com dados simulados; rode este script quando quiser persistir.
+-- J2A Sales Machine — esquema do Supabase.
+-- Rode este script no SQL Editor do seu projeto Supabase.
+-- O app também funciona em modo local (sem Supabase), mas aí não há
+-- fiscalização compartilhada entre os 3 funcionários.
 
+-- ─────────────────────────────────────────────────────────────
+-- Funcionários + PIN
+-- ─────────────────────────────────────────────────────────────
+create table if not exists employees (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  pin         text not null,
+  role        text not null default 'vendedor' check (role in ('vendedor','gestor')),
+  created_at  timestamptz not null default now()
+);
+
+-- Seed dos 3 funcionários + gestor. TROQUE os nomes e PINs.
+insert into employees (name, pin, role) values
+  ('Funcionário 1', '1111', 'vendedor'),
+  ('Funcionário 2', '2222', 'vendedor'),
+  ('Funcionário 3', '3333', 'vendedor'),
+  ('Gestor',        '9999', 'gestor')
+on conflict do nothing;
+
+-- ─────────────────────────────────────────────────────────────
+-- Conclusão de tarefa do playbook (1 linha por tarefa por funcionário)
+-- task_id é o id da tarefa em src/lib/playbook.ts (ex.: 'm1-v1')
+-- ─────────────────────────────────────────────────────────────
+create table if not exists task_completions (
+  id            uuid primary key default gen_random_uuid(),
+  task_id       text not null,
+  employee_id   uuid not null references employees(id) on delete cascade,
+  completed_at  timestamptz not null default now(),
+  unique (task_id, employee_id)
+);
+
+create index if not exists idx_completions_employee on task_completions (employee_id);
+
+-- ─────────────────────────────────────────────────────────────
+-- CRM (opcional) — leads e criativos
+-- ─────────────────────────────────────────────────────────────
 create table if not exists leads (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
@@ -23,13 +61,17 @@ create table if not exists creatives (
   created_at  timestamptz not null default now()
 );
 
--- Progresso do playbook por tarefa (checkbox marcado no Dashboard).
-create table if not exists playbook_progress (
-  task_id     text primary key,
-  done        boolean not null default false,
-  updated_at  timestamptz not null default now()
-);
+-- ─────────────────────────────────────────────────────────────
+-- RLS — ferramenta interna de equipe pequena.
+-- Liberamos leitura/escrita pela anon key. Para produção pública,
+-- troque por Supabase Auth + policies por usuário.
+-- ─────────────────────────────────────────────────────────────
+alter table employees        enable row level security;
+alter table task_completions enable row level security;
+alter table leads            enable row level security;
+alter table creatives        enable row level security;
 
-alter table leads enable row level security;
-alter table creatives enable row level security;
-alter table playbook_progress enable row level security;
+create policy "anon full employees"        on employees        for all using (true) with check (true);
+create policy "anon full task_completions" on task_completions for all using (true) with check (true);
+create policy "anon full leads"            on leads            for all using (true) with check (true);
+create policy "anon full creatives"        on creatives        for all using (true) with check (true);

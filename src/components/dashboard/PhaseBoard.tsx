@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   ShieldCheck,
@@ -9,10 +9,18 @@ import {
   ShoppingBag,
   Instagram,
   Megaphone,
+  LockKeyhole,
   type LucideIcon,
 } from "lucide-react";
 import { PHASES, CREATIVE_CHECKLIST, type Phase, type Section } from "@/lib/playbook";
 import Modal from "@/components/ui/Modal";
+import { useSession } from "@/components/team/session";
+import {
+  addCompletion,
+  fetchCompletions,
+  removeCompletion,
+  type Completion,
+} from "@/lib/store";
 
 const SECTION_ICON: Record<Section["key"], LucideIcon> = {
   vendas: ShoppingBag,
@@ -21,44 +29,99 @@ const SECTION_ICON: Record<Section["key"], LucideIcon> = {
   promo: Gift,
 };
 
-export default function PhaseBoard() {
-  // Conjunto de tarefas concluídas e fases com checklist de criativos liberado.
-  const [done, setDone] = useState<Set<string>>(new Set());
-  const [approved, setApproved] = useState<Set<string>>(new Set());
+export function formatWhen(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
-  const toggle = (id: string) =>
-    setDone((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
+export default function PhaseBoard() {
+  const { user } = useSession();
+  const [mine, setMine] = useState<Map<string, string>>(new Map());
+  const [approved, setApproved] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  // Carrega as conclusões do funcionário logado.
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetchCompletions().then((rows: Completion[]) => {
+      if (!active) return;
+      const map = new Map<string, string>();
+      if (user) {
+        rows
+          .filter((r) => r.employee_id === user.id)
+          .forEach((r) => map.set(r.task_id, r.completed_at));
+      }
+      setMine(map);
+      setLoading(false);
     });
+    return () => {
+      active = false;
+    };
+  }, [user]);
+
+  const toggle = useCallback(
+    async (taskId: string) => {
+      if (!user) return;
+      const has = mine.has(taskId);
+      setMine((prev) => {
+        const next = new Map(prev);
+        has ? next.delete(taskId) : next.set(taskId, new Date().toISOString());
+        return next;
+      });
+      if (has) await removeCompletion(taskId, user.id);
+      else await addCompletion(taskId, user.id);
+    },
+    [user, mine]
+  );
 
   return (
-    <div className="grid grid-cols-1 gap-5 px-6 py-6 sm:px-8 lg:grid-cols-2 2xl:grid-cols-4">
-      {PHASES.map((phase) => (
-        <PhaseCard
-          key={phase.id}
-          phase={phase}
-          done={done}
-          toggle={toggle}
-          approved={approved.has(phase.id)}
-          onApprove={() => setApproved((p) => new Set(p).add(phase.id))}
-        />
-      ))}
+    <div>
+      {!user && (
+        <div className="mx-6 mt-6 flex items-center gap-3 rounded-xl border border-flame-500/30 bg-flame-500/10 px-4 py-3 sm:mx-8">
+          <LockKeyhole size={18} className="shrink-0 text-flame-400" />
+          <p className="text-sm text-zinc-200">
+            <span className="font-bold text-white">Entre com seu PIN</span> (canto
+            inferior esquerdo) para marcar suas tarefas. Cada marcação fica
+            registrada com seu nome e horário.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-5 px-6 py-6 sm:px-8 lg:grid-cols-2 2xl:grid-cols-4">
+        {PHASES.map((phase) => (
+          <PhaseCard
+            key={phase.id}
+            phase={phase}
+            mine={mine}
+            toggle={toggle}
+            canEdit={Boolean(user) && !loading}
+            approved={approved.has(phase.id)}
+            onApprove={() => setApproved((p) => new Set(p).add(phase.id))}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
 function PhaseCard({
   phase,
-  done,
+  mine,
   toggle,
+  canEdit,
   approved,
   onApprove,
 }: {
   phase: Phase;
-  done: Set<string>;
+  mine: Map<string, string>;
   toggle: (id: string) => void;
+  canEdit: boolean;
   approved: boolean;
   onApprove: () => void;
 }) {
@@ -68,12 +131,11 @@ function PhaseCard({
     () => phase.sections.flatMap((s) => s.tasks),
     [phase]
   );
-  const completed = allTasks.filter((t) => done.has(t.id)).length;
+  const completed = allTasks.filter((t) => mine.has(t.id)).length;
   const pct = Math.round((completed / allTasks.length) * 100);
 
   return (
     <article className="flex animate-fade-in flex-col rounded-2xl border border-ink-700 bg-ink-900/80 p-5 transition hover:border-flame-500/40">
-      {/* Cabeçalho da fase */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-flame-500/20 to-gold-500/10 text-flame-400 ring-1 ring-flame-500/30">
@@ -93,7 +155,6 @@ function PhaseCard({
         </span>
       </div>
 
-      {/* Métricas */}
       <div className="mt-4 grid grid-cols-3 gap-2">
         {phase.metrics.map((m) => (
           <div
@@ -108,10 +169,9 @@ function PhaseCard({
         ))}
       </div>
 
-      {/* Progresso */}
       <div className="mt-4">
         <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold text-zinc-300">Execução</span>
+          <span className="font-semibold text-zinc-300">Sua execução</span>
           <span className="font-bold text-flame-400">{pct}%</span>
         </div>
         <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-ink-800">
@@ -122,22 +182,21 @@ function PhaseCard({
         </div>
       </div>
 
-      {/* Seções */}
       <div className="mt-4 space-y-4">
         {phase.sections.map((section) => (
           <SectionBlock
             key={section.key}
             phaseId={phase.id}
             section={section}
-            done={done}
+            mine={mine}
             toggle={toggle}
+            canEdit={canEdit}
             approved={approved}
             onApprove={onApprove}
           />
         ))}
       </div>
 
-      {/* Promoção do mês */}
       <div className="mt-4 rounded-xl border border-gold-500/30 bg-gold-500/10 p-3">
         <div className="flex items-center gap-2">
           <Gift size={15} className="text-gold-400" />
@@ -155,15 +214,17 @@ function PhaseCard({
 function SectionBlock({
   phaseId,
   section,
-  done,
+  mine,
   toggle,
+  canEdit,
   approved,
   onApprove,
 }: {
   phaseId: string;
   section: Section;
-  done: Set<string>;
+  mine: Map<string, string>;
   toggle: (id: string) => void;
+  canEdit: boolean;
   approved: boolean;
   onApprove: () => void;
 }) {
@@ -172,7 +233,7 @@ function SectionBlock({
   const Icon = SECTION_ICON[section.key];
 
   const allChecked = checks.size === CREATIVE_CHECKLIST.length;
-  const locked = section.gated && !approved;
+  const locked = !canEdit || (section.gated && !approved);
 
   const toggleCheck = (id: string) =>
     setChecks((prev) => {
@@ -197,8 +258,9 @@ function SectionBlock({
             </span>
           ) : (
             <button
+              disabled={!canEdit}
               onClick={() => setModalOpen(true)}
-              className="flex items-center gap-1 rounded-full bg-flame-500/15 px-2 py-0.5 text-[10px] font-bold text-flame-400 ring-1 ring-flame-500/40 hover:bg-flame-500/25"
+              className="flex items-center gap-1 rounded-full bg-flame-500/15 px-2 py-0.5 text-[10px] font-bold text-flame-400 ring-1 ring-flame-500/40 enabled:hover:bg-flame-500/25 disabled:opacity-40"
             >
               <Lock size={11} /> Validar
             </button>
@@ -207,16 +269,15 @@ function SectionBlock({
 
       <ul className="space-y-1">
         {section.tasks.map((task) => {
-          const isDone = done.has(task.id);
+          const when = mine.get(task.id);
+          const isDone = Boolean(when);
           return (
             <li key={task.id}>
               <button
                 disabled={locked}
                 onClick={() => toggle(task.id)}
                 className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition ${
-                  locked
-                    ? "cursor-not-allowed opacity-45"
-                    : "hover:bg-ink-800"
+                  locked ? "cursor-not-allowed opacity-45" : "hover:bg-ink-800"
                 }`}
               >
                 <span
@@ -228,12 +289,15 @@ function SectionBlock({
                 >
                   {isDone && <Check size={11} strokeWidth={3.5} />}
                 </span>
-                <span
-                  className={`leading-snug ${
-                    isDone ? "text-zinc-500 line-through" : "text-zinc-200"
-                  }`}
-                >
-                  {task.label}
+                <span className="leading-snug">
+                  <span className={isDone ? "text-zinc-500 line-through" : "text-zinc-200"}>
+                    {task.label}
+                  </span>
+                  {when && (
+                    <span className="mt-0.5 block text-[10px] font-medium text-emerald-400/80">
+                      ✓ você · {formatWhen(when)}
+                    </span>
+                  )}
                 </span>
               </button>
             </li>

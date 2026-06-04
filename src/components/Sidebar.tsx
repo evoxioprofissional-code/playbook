@@ -8,12 +8,15 @@ import {
   KanbanSquare,
   MessageSquareText,
   Clapperboard,
+  Users,
   Menu,
   X,
 } from "lucide-react";
+import AccountBar from "@/components/team/AccountBar";
 
 const NAV = [
   { href: "/", label: "Dashboard", sub: "Playbook mensal", icon: LayoutDashboard },
+  { href: "/equipe", label: "Equipe", sub: "Acompanhamento", icon: Users },
   { href: "/crm", label: "CRM Kanban", sub: "Gestão de leads", icon: KanbanSquare },
   { href: "/scripts", label: "Scripts", sub: "Biblioteca", icon: MessageSquareText },
   { href: "/criativos", label: "Criativos", sub: "Social media", icon: Clapperboard },
@@ -88,9 +91,11 @@ export default function Sidebar() {
           })}
         </nav>
 
-        <div className="border-t border-ink-700 px-5 py-4">
-          <p className="text-xs font-medium text-zinc-500">Fábrica J2A Bonés</p>
-          <p className="text-[11px] text-zinc-600">Seridó · Performance comercial</p>
+        <div className="space-y-3 border-t border-ink-700 px-4 py-4">
+          <AccountBar />
+          <p className="px-1 text-[11px] text-zinc-600">
+            Fábrica J2A Bonés · Seridó
+          </p>
         </div>
       </aside>
     </>
