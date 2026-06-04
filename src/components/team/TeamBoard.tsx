@@ -9,44 +9,67 @@ import {
   Activity,
 } from "lucide-react";
 import { PHASES } from "@/lib/playbook";
+import { slotCount, formatWhen } from "@/lib/period";
 import {
   fetchEmployees,
-  fetchCompletions,
+  fetchLogs,
   isSupabaseEnabled,
   type Employee,
-  type Completion,
+  type TaskLog,
 } from "@/lib/store";
-import { formatWhen } from "@/components/dashboard/PhaseBoard";
 
-// Índice de tarefas: id -> rótulo + fase, para exibir o feed e contar metas.
+// Índice de tarefas: id -> rótulo, fase e nº de caixas (slots).
 const TASK_INDEX = new Map(
   PHASES.flatMap((p) =>
     p.sections.flatMap((s) =>
-      s.tasks.map((t) => [t.id, { label: t.label, tag: p.tag, phaseId: p.id }] as const)
+      s.tasks.map(
+        (t) =>
+          [
+            t.id,
+            { label: t.label, tag: p.tag, phaseId: p.id, slots: slotCount(t) },
+          ] as const
+      )
     )
   )
 );
-const TASKS_PER_PHASE = new Map(
-  PHASES.map((p) => [p.id, p.sections.reduce((n, s) => n + s.tasks.length, 0)])
+const SLOTS_PER_PHASE = new Map(
+  PHASES.map((p) => [
+    p.id,
+    p.sections.reduce(
+      (n, s) => n + s.tasks.reduce((m, t) => m + slotCount(t), 0),
+      0
+    ),
+  ])
 );
-const TOTAL_TASKS = Array.from(TASKS_PER_PHASE.values()).reduce(
+const TOTAL_SLOTS = Array.from(SLOTS_PER_PHASE.values()).reduce(
   (a, b) => a + b,
   0
 );
 
+// Conta logs por (employee, phase) e total, respeitando o teto de cada tarefa.
+function countByPhase(logs: TaskLog[], phaseId: string) {
+  const perTask = new Map<string, number>();
+  logs.forEach((l) => {
+    const t = TASK_INDEX.get(l.task_id);
+    if (t?.phaseId === phaseId) perTask.set(l.task_id, (perTask.get(l.task_id) || 0) + 1);
+  });
+  let done = 0;
+  perTask.forEach((n, id) => {
+    done += Math.min(n, TASK_INDEX.get(id)?.slots || 0);
+  });
+  return done;
+}
+
 export default function TeamBoard() {
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [completions, setCompletions] = useState<Completion[]>([]);
+  const [logs, setLogs] = useState<TaskLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
-    const [emps, comps] = await Promise.all([
-      fetchEmployees(),
-      fetchCompletions(),
-    ]);
+    const [emps, rows] = await Promise.all([fetchEmployees(), fetchLogs()]);
     setEmployees(emps);
-    setCompletions(comps);
+    setLogs(rows);
     setLoading(false);
   };
 
@@ -62,17 +85,17 @@ export default function TeamBoard() {
 
   const feed = useMemo(
     () =>
-      [...completions]
-        .sort((a, b) => b.completed_at.localeCompare(a.completed_at))
-        .slice(0, 12),
-    [completions]
+      [...logs]
+        .sort((a, b) => b.marked_at.localeCompare(a.marked_at))
+        .slice(0, 14),
+    [logs]
   );
 
   return (
     <div className="space-y-8 px-6 py-6 sm:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-zinc-400">
-          Quem está seguindo o plano — progresso por funcionário e registro de cada marcação.
+          Quem está seguindo o plano — progresso por funcionário e cada caixa marcada (com horário).
         </p>
         <button
           onClick={load}
@@ -94,16 +117,15 @@ export default function TeamBoard() {
         </div>
       )}
 
-      {/* Cartões por funcionário */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {vendedores.map((emp) => {
-          const mine = completions.filter((c) => c.employee_id === emp.id);
-          const total = mine.length;
-          const pct = Math.round((total / TOTAL_TASKS) * 100);
-          const last = mine
-            .map((c) => c.completed_at)
-            .sort()
-            .at(-1);
+          const mine = logs.filter((c) => c.employee_id === emp.id);
+          const done = PHASES.reduce(
+            (sum, p) => sum + countByPhase(mine, p.id),
+            0
+          );
+          const pct = Math.round((done / TOTAL_SLOTS) * 100);
+          const last = mine.map((c) => c.marked_at).sort().at(-1);
           return (
             <article
               key={emp.id}
@@ -130,16 +152,13 @@ export default function TeamBoard() {
                 />
               </div>
               <p className="mt-1.5 text-[11px] text-zinc-500">
-                {total} de {TOTAL_TASKS} tarefas
+                {done} de {TOTAL_SLOTS} caixas
               </p>
 
-              {/* Progresso por mês */}
               <div className="mt-4 space-y-2">
                 {PHASES.map((p) => {
-                  const inPhase = mine.filter(
-                    (c) => TASK_INDEX.get(c.task_id)?.phaseId === p.id
-                  ).length;
-                  const totalPhase = TASKS_PER_PHASE.get(p.id) || 1;
+                  const inPhase = countByPhase(mine, p.id);
+                  const totalPhase = SLOTS_PER_PHASE.get(p.id) || 1;
                   const pp = Math.round((inPhase / totalPhase) * 100);
                   return (
                     <div key={p.id} className="flex items-center gap-2">
@@ -152,7 +171,7 @@ export default function TeamBoard() {
                           style={{ width: `${pp}%` }}
                         />
                       </div>
-                      <span className="w-10 shrink-0 text-right text-[10px] font-semibold text-zinc-400">
+                      <span className="w-12 shrink-0 text-right text-[10px] font-semibold text-zinc-400">
                         {inPhase}/{totalPhase}
                       </span>
                     </div>
@@ -169,7 +188,6 @@ export default function TeamBoard() {
         })}
       </section>
 
-      {/* Feed de atividade */}
       <section>
         <div className="mb-3 flex items-center gap-2">
           <Activity size={16} className="text-flame-400" />
@@ -180,7 +198,7 @@ export default function TeamBoard() {
         <div className="overflow-hidden rounded-2xl border border-ink-700">
           {feed.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-zinc-500">
-              Nenhuma tarefa marcada ainda. As marcações aparecem aqui com nome e horário.
+              Nenhuma caixa marcada ainda. As marcações aparecem aqui com nome e horário.
             </p>
           ) : (
             <ul className="divide-y divide-ink-700">
@@ -188,7 +206,7 @@ export default function TeamBoard() {
                 const t = TASK_INDEX.get(c.task_id);
                 return (
                   <li
-                    key={`${c.task_id}-${c.employee_id}-${i}`}
+                    key={`${c.task_id}-${c.employee_id}-${c.slot}-${i}`}
                     className="flex items-center gap-3 bg-ink-900/60 px-4 py-3"
                   >
                     <span className="rounded-md bg-flame-500/15 px-2 py-0.5 text-[10px] font-bold text-flame-400">
@@ -198,10 +216,10 @@ export default function TeamBoard() {
                       <span className="font-bold text-white">
                         {nameById.get(c.employee_id) ?? "Alguém"}
                       </span>{" "}
-                      concluiu: {t?.label ?? c.task_id}
+                      marcou: {t?.label ?? c.task_id}
                     </span>
                     <span className="shrink-0 text-xs font-medium text-zinc-500">
-                      {formatWhen(c.completed_at)}
+                      {formatWhen(c.marked_at)}
                     </span>
                   </li>
                 );

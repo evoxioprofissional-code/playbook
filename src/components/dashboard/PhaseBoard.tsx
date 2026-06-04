@@ -10,17 +10,20 @@ import {
   Instagram,
   Megaphone,
   LockKeyhole,
+  CalendarDays,
   type LucideIcon,
 } from "lucide-react";
-import { PHASES, CREATIVE_CHECKLIST, type Phase, type Section } from "@/lib/playbook";
+import {
+  PHASES,
+  CREATIVE_CHECKLIST,
+  type Phase,
+  type Section,
+  type Task,
+} from "@/lib/playbook";
+import { monthInfo, dayKey, slotCount, cadenceLabel } from "@/lib/period";
 import Modal from "@/components/ui/Modal";
 import { useSession } from "@/components/team/session";
-import {
-  addCompletion,
-  fetchCompletions,
-  removeCompletion,
-  type Completion,
-} from "@/lib/store";
+import { addLog, fetchLogs, removeLog, type TaskLog } from "@/lib/store";
 
 const SECTION_ICON: Record<Section["key"], LucideIcon> = {
   vendas: ShoppingBag,
@@ -29,35 +32,27 @@ const SECTION_ICON: Record<Section["key"], LucideIcon> = {
   promo: Gift,
 };
 
-export function formatWhen(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+const slotKey = (taskId: string, slot: string) => `${taskId}__${slot}`;
 
 export default function PhaseBoard() {
   const { user } = useSession();
-  const [mine, setMine] = useState<Map<string, string>>(new Map());
+  const [mine, setMine] = useState<Set<string>>(new Set());
   const [approved, setApproved] = useState<Set<string>>(new Set());
+  const [activeId, setActiveId] = useState<string>(PHASES[0].id);
   const [loading, setLoading] = useState(true);
 
-  // Carrega as conclusões do funcionário logado.
   useEffect(() => {
     let active = true;
     setLoading(true);
-    fetchCompletions().then((rows: Completion[]) => {
+    fetchLogs().then((rows: TaskLog[]) => {
       if (!active) return;
-      const map = new Map<string, string>();
+      const set = new Set<string>();
       if (user) {
         rows
           .filter((r) => r.employee_id === user.id)
-          .forEach((r) => map.set(r.task_id, r.completed_at));
+          .forEach((r) => set.add(slotKey(r.task_id, r.slot)));
       }
-      setMine(map);
+      setMine(set);
       setLoading(false);
     });
     return () => {
@@ -66,19 +61,45 @@ export default function PhaseBoard() {
   }, [user]);
 
   const toggle = useCallback(
-    async (taskId: string) => {
+    async (taskId: string, slot: string) => {
       if (!user) return;
-      const has = mine.has(taskId);
+      const k = slotKey(taskId, slot);
+      const has = mine.has(k);
       setMine((prev) => {
-        const next = new Map(prev);
-        has ? next.delete(taskId) : next.set(taskId, new Date().toISOString());
+        const next = new Set(prev);
+        has ? next.delete(k) : next.add(k);
         return next;
       });
-      if (has) await removeCompletion(taskId, user.id);
-      else await addCompletion(taskId, user.id);
+      if (has) await removeLog(taskId, user.id, slot);
+      else await addLog(taskId, user.id, slot);
     },
     [user, mine]
   );
+
+  const doneByTask = useMemo(() => {
+    const m = new Map<string, number>();
+    mine.forEach((k) => {
+      const id = k.split("__")[0];
+      m.set(id, (m.get(id) || 0) + 1);
+    });
+    return m;
+  }, [mine]);
+
+  const phasePct = (phase: Phase) => {
+    let total = 0;
+    let done = 0;
+    phase.sections.forEach((s) =>
+      s.tasks.forEach((t) => {
+        const cap = slotCount(t);
+        total += cap;
+        done += Math.min(doneByTask.get(t.id) || 0, cap);
+      })
+    );
+    return total ? Math.round((done / total) * 100) : 0;
+  };
+
+  const active = PHASES.find((p) => p.id === activeId)!;
+  const { label: monthLabel } = monthInfo();
 
   return (
     <div>
@@ -87,108 +108,137 @@ export default function PhaseBoard() {
           <LockKeyhole size={18} className="shrink-0 text-flame-400" />
           <p className="text-sm text-zinc-200">
             <span className="font-bold text-white">Entre com seu PIN</span> (canto
-            inferior esquerdo) para marcar suas tarefas. Cada marcação fica
-            registrada com seu nome e horário.
+            inferior esquerdo) para marcar. Só dá pra marcar o{" "}
+            <span className="font-semibold text-white">dia de hoje</span> — dia
+            passado não vira atrás.
           </p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-5 px-6 py-6 sm:px-8 lg:grid-cols-2 2xl:grid-cols-4">
-        {PHASES.map((phase) => (
-          <PhaseCard
-            key={phase.id}
-            phase={phase}
-            mine={mine}
-            toggle={toggle}
-            canEdit={Boolean(user) && !loading}
-            approved={approved.has(phase.id)}
-            onApprove={() => setApproved((p) => new Set(p).add(phase.id))}
-          />
-        ))}
+      {/* Seletor de mês */}
+      <div className="flex flex-wrap items-center gap-2 px-6 pt-6 sm:px-8">
+        <span className="mr-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <CalendarDays size={14} /> {monthLabel}
+        </span>
+        {PHASES.map((p) => {
+          const isActive = p.id === activeId;
+          const pct = phasePct(p);
+          return (
+            <button
+              key={p.id}
+              onClick={() => setActiveId(p.id)}
+              className={`flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-bold transition ${
+                isActive
+                  ? "bg-flame-500 text-black"
+                  : "bg-ink-900 text-zinc-300 ring-1 ring-ink-700 hover:text-white"
+              }`}
+            >
+              {p.tag}
+              <span
+                className={`rounded-md px-1.5 py-0.5 text-[10px] ${
+                  isActive ? "bg-black/20 text-black" : "bg-ink-800 text-flame-400"
+                }`}
+              >
+                {pct}%
+              </span>
+            </button>
+          );
+        })}
       </div>
+
+      <PhaseDetail
+        phase={active}
+        mine={mine}
+        doneByTask={doneByTask}
+        toggle={toggle}
+        canEdit={Boolean(user) && !loading}
+        approved={approved.has(active.id)}
+        onApprove={() => setApproved((p) => new Set(p).add(active.id))}
+        pct={phasePct(active)}
+      />
     </div>
   );
 }
 
-function PhaseCard({
+function PhaseDetail({
   phase,
   mine,
+  doneByTask,
   toggle,
   canEdit,
   approved,
   onApprove,
+  pct,
 }: {
   phase: Phase;
-  mine: Map<string, string>;
-  toggle: (id: string) => void;
+  mine: Set<string>;
+  doneByTask: Map<string, number>;
+  toggle: (taskId: string, slot: string) => void;
   canEdit: boolean;
   approved: boolean;
   onApprove: () => void;
+  pct: number;
 }) {
   const Icon = phase.icon;
-
-  const allTasks = useMemo(
-    () => phase.sections.flatMap((s) => s.tasks),
-    [phase]
-  );
-  const completed = allTasks.filter((t) => mine.has(t.id)).length;
-  const pct = Math.round((completed / allTasks.length) * 100);
-
   return (
-    <article className="flex animate-fade-in flex-col rounded-2xl border border-ink-700 bg-ink-900/80 p-5 transition hover:border-flame-500/40">
-      <div className="flex items-start justify-between">
+    <div className="animate-fade-in px-6 py-6 sm:px-8">
+      {/* Cabeçalho da fase */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-ink-700 bg-ink-900/80 p-5">
         <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-flame-500/20 to-gold-500/10 text-flame-400 ring-1 ring-flame-500/30">
-            <Icon size={20} strokeWidth={2.2} />
+          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-flame-500/20 to-gold-500/10 text-flame-400 ring-1 ring-flame-500/30">
+            <Icon size={22} strokeWidth={2.2} />
           </span>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-widest text-flame-400">
-              {phase.tag}
+              {phase.tag} · {phase.foco}
             </p>
-            <h2 className="text-lg font-extrabold leading-tight text-white">
+            <h2 className="text-xl font-extrabold leading-tight text-white">
               {phase.title}
             </h2>
           </div>
         </div>
-        <span className="rounded-full bg-ink-800 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-ink-600">
-          {phase.foco}
-        </span>
-      </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
-        {phase.metrics.map((m) => (
-          <div
-            key={m.label}
-            className="rounded-lg bg-ink-850 px-2 py-2 text-center ring-1 ring-ink-700"
-          >
-            <p className="text-sm font-extrabold text-white">{m.value}</p>
-            <p className="text-[10px] uppercase tracking-wide text-zinc-500">
-              {m.label}
-            </p>
+        <div className="flex items-center gap-3">
+          {phase.metrics.map((m) => (
+            <div key={m.label} className="text-center">
+              <p className="text-sm font-extrabold text-white">{m.value}</p>
+              <p className="text-[10px] uppercase tracking-wide text-zinc-500">
+                {m.label}
+              </p>
+            </div>
+          ))}
+          <div className="ml-2 w-28">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-zinc-300">Você</span>
+              <span className="font-bold text-flame-400">{pct}%</span>
+            </div>
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-ink-800">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
           </div>
-        ))}
-      </div>
-
-      <div className="mt-4">
-        <div className="flex items-center justify-between text-xs">
-          <span className="font-semibold text-zinc-300">Sua execução</span>
-          <span className="font-bold text-flame-400">{pct}%</span>
-        </div>
-        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-ink-800">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
         </div>
       </div>
 
-      <div className="mt-4 space-y-4">
+      {/* Legenda */}
+      <div className="mt-3 flex flex-wrap items-center gap-4 px-1 text-[11px] text-zinc-500">
+        <Legend className="bg-flame-500" label="Feito" />
+        <Legend className="bg-ink-700 ring-2 ring-flame-400" label="Hoje" />
+        <Legend className="bg-ink-800" label="A fazer" />
+        <Legend className="border border-rose-500/40 bg-rose-500/10" label="Dia perdido" />
+      </div>
+
+      {/* Seções */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         {phase.sections.map((section) => (
           <SectionBlock
             key={section.key}
             phaseId={phase.id}
             section={section}
             mine={mine}
+            doneByTask={doneByTask}
             toggle={toggle}
             canEdit={canEdit}
             approved={approved}
@@ -197,17 +247,29 @@ function PhaseCard({
         ))}
       </div>
 
-      <div className="mt-4 rounded-xl border border-gold-500/30 bg-gold-500/10 p-3">
-        <div className="flex items-center gap-2">
-          <Gift size={15} className="text-gold-400" />
+      {/* Promoção do mês */}
+      <div className="mt-4 flex items-center gap-3 rounded-xl border border-gold-500/30 bg-gold-500/10 p-4">
+        <Gift size={18} className="shrink-0 text-gold-400" />
+        <div>
           <p className="text-[11px] font-bold uppercase tracking-wide text-gold-400">
             Promoção do mês
           </p>
+          <p className="text-sm font-bold text-white">
+            {phase.promo.name}{" "}
+            <span className="font-normal text-zinc-400">· {phase.promo.detail}</span>
+          </p>
         </div>
-        <p className="mt-1 text-sm font-bold text-white">{phase.promo.name}</p>
-        <p className="text-xs text-zinc-400">{phase.promo.detail}</p>
       </div>
-    </article>
+    </div>
+  );
+}
+
+function Legend({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className={`h-3 w-3 rounded-[4px] ${className}`} />
+      {label}
+    </span>
   );
 }
 
@@ -215,6 +277,7 @@ function SectionBlock({
   phaseId,
   section,
   mine,
+  doneByTask,
   toggle,
   canEdit,
   approved,
@@ -222,8 +285,9 @@ function SectionBlock({
 }: {
   phaseId: string;
   section: Section;
-  mine: Map<string, string>;
-  toggle: (id: string) => void;
+  mine: Set<string>;
+  doneByTask: Map<string, number>;
+  toggle: (taskId: string, slot: string) => void;
   canEdit: boolean;
   approved: boolean;
   onApprove: () => void;
@@ -233,7 +297,7 @@ function SectionBlock({
   const Icon = SECTION_ICON[section.key];
 
   const allChecked = checks.size === CREATIVE_CHECKLIST.length;
-  const locked = !canEdit || (section.gated && !approved);
+  const locked = section.gated && !approved;
 
   const toggleCheck = (id: string) =>
     setChecks((prev) => {
@@ -243,10 +307,10 @@ function SectionBlock({
     });
 
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between">
+    <div className="rounded-2xl border border-ink-700 bg-ink-900/80 p-4">
+      <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Icon size={14} className="text-zinc-400" />
+          <Icon size={15} className="text-zinc-400" />
           <h3 className="text-xs font-bold uppercase tracking-wide text-zinc-300">
             {section.title}
           </h3>
@@ -267,43 +331,18 @@ function SectionBlock({
           ))}
       </div>
 
-      <ul className="space-y-1">
-        {section.tasks.map((task) => {
-          const when = mine.get(task.id);
-          const isDone = Boolean(when);
-          return (
-            <li key={task.id}>
-              <button
-                disabled={locked}
-                onClick={() => toggle(task.id)}
-                className={`flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition ${
-                  locked ? "cursor-not-allowed opacity-45" : "hover:bg-ink-800"
-                }`}
-              >
-                <span
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition ${
-                    isDone
-                      ? "border-flame-500 bg-flame-500 text-black"
-                      : "border-ink-600 bg-ink-850"
-                  }`}
-                >
-                  {isDone && <Check size={11} strokeWidth={3.5} />}
-                </span>
-                <span className="leading-snug">
-                  <span className={isDone ? "text-zinc-500 line-through" : "text-zinc-200"}>
-                    {task.label}
-                  </span>
-                  {when && (
-                    <span className="mt-0.5 block text-[10px] font-medium text-emerald-400/80">
-                      ✓ você · {formatWhen(when)}
-                    </span>
-                  )}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="space-y-4">
+        {section.tasks.map((task) => (
+          <TaskTrack
+            key={task.id}
+            task={task}
+            mine={mine}
+            done={doneByTask.get(task.id) || 0}
+            toggle={toggle}
+            canEdit={canEdit && !locked}
+          />
+        ))}
+      </div>
 
       {section.gated && (
         <Modal
@@ -355,11 +394,168 @@ function SectionBlock({
             })}
           </ul>
           <p className="mt-3 text-[11px] text-zinc-500">
-            Fase {phaseId.replace("mes-", "")} · sem o checklist completo a
-            publicação fica travada.
+            Fase {phaseId.replace("mes-", "")} · sem o checklist completo as caixas
+            de criativos ficam travadas.
           </p>
         </Modal>
       )}
     </div>
+  );
+}
+
+function TaskTrack({
+  task,
+  mine,
+  done,
+  toggle,
+  canEdit,
+}: {
+  task: Task;
+  mine: Set<string>;
+  done: number;
+  toggle: (taskId: string, slot: string) => void;
+  canEdit: boolean;
+}) {
+  const total = slotCount(task);
+  const capped = Math.min(done, total);
+
+  return (
+    <div className={canEdit ? "" : "opacity-50"}>
+      <div className="mb-1.5 flex items-start justify-between gap-2">
+        <p className="text-sm leading-snug text-zinc-200">{task.label}</p>
+        <span className="shrink-0 rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-bold text-zinc-400">
+          {capped}/{total}
+        </span>
+      </div>
+      <p className="mb-2 text-[10px] uppercase tracking-wide text-zinc-600">
+        {cadenceLabel(task)}
+      </p>
+
+      {task.cadence === "daily" && (
+        <DailyGrid task={task} mine={mine} toggle={toggle} canEdit={canEdit} />
+      )}
+      {task.cadence === "count" && (
+        <CountGrid task={task} mine={mine} toggle={toggle} canEdit={canEdit} total={total} />
+      )}
+      {task.cadence === "once" && (
+        <OnceToggle task={task} mine={mine} toggle={toggle} canEdit={canEdit} />
+      )}
+    </div>
+  );
+}
+
+function DailyGrid({
+  task,
+  mine,
+  toggle,
+  canEdit,
+}: {
+  task: Task;
+  mine: Set<string>;
+  toggle: (taskId: string, slot: string) => void;
+  canEdit: boolean;
+}) {
+  const { year, month, days, todayDay } = monthInfo();
+  return (
+    <div className="flex flex-wrap gap-1">
+      {Array.from({ length: days }, (_, i) => i + 1).map((day) => {
+        const slot = dayKey(year, month, day);
+        const isDone = mine.has(slotKey(task.id, slot));
+        const isToday = day === todayDay;
+        const isPast = day < todayDay;
+        const clickable = canEdit && isToday;
+
+        let cls = "bg-ink-800 text-zinc-600"; // futuro / a fazer
+        if (isDone) cls = "bg-flame-500 text-black";
+        else if (isToday) cls = "bg-ink-700 text-flame-300 ring-2 ring-flame-400";
+        else if (isPast) cls = "border border-rose-500/40 bg-rose-500/10 text-rose-400/70";
+
+        return (
+          <button
+            key={day}
+            disabled={!clickable}
+            onClick={() => toggle(task.id, slot)}
+            title={`Dia ${day}${isDone ? " · feito" : isToday ? " · hoje" : isPast ? " · perdido" : ""}`}
+            className={`flex h-6 w-6 items-center justify-center rounded-[5px] text-[10px] font-bold transition ${cls} ${
+              clickable ? "cursor-pointer hover:scale-110" : "cursor-default"
+            }`}
+          >
+            {day}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CountGrid({
+  task,
+  mine,
+  toggle,
+  canEdit,
+  total,
+}: {
+  task: Task;
+  mine: Set<string>;
+  toggle: (taskId: string, slot: string) => void;
+  canEdit: boolean;
+  total: number;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {Array.from({ length: total }, (_, i) => i + 1).map((n) => {
+        const slot = String(n);
+        const isDone = mine.has(slotKey(task.id, slot));
+        return (
+          <button
+            key={n}
+            disabled={!canEdit}
+            onClick={() => toggle(task.id, slot)}
+            title={`Unidade ${n}`}
+            className={`flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold transition ${
+              isDone
+                ? "bg-flame-500 text-black"
+                : "bg-ink-800 text-zinc-500 ring-1 ring-ink-700"
+            } ${canEdit ? "cursor-pointer hover:scale-110" : "cursor-default"}`}
+          >
+            {isDone ? <Check size={13} strokeWidth={3.5} /> : n}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function OnceToggle({
+  task,
+  mine,
+  toggle,
+  canEdit,
+}: {
+  task: Task;
+  mine: Set<string>;
+  toggle: (taskId: string, slot: string) => void;
+  canEdit: boolean;
+}) {
+  const isDone = mine.has(slotKey(task.id, "done"));
+  return (
+    <button
+      disabled={!canEdit}
+      onClick={() => toggle(task.id, "done")}
+      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-bold transition ${
+        isDone
+          ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
+          : "bg-ink-800 text-zinc-400 ring-1 ring-ink-700"
+      } ${canEdit ? "hover:text-white" : ""}`}
+    >
+      <span
+        className={`flex h-4 w-4 items-center justify-center rounded border ${
+          isDone ? "border-emerald-400 bg-emerald-500 text-black" : "border-ink-600"
+        }`}
+      >
+        {isDone && <Check size={11} strokeWidth={3.5} />}
+      </span>
+      {isDone ? "Concluído" : "Marcar"}
+    </button>
   );
 }

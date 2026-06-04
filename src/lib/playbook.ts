@@ -5,10 +5,15 @@ import {
   Repeat,
   type LucideIcon,
 } from "lucide-react";
+import type { Cadence } from "./period";
 
 export type Task = {
   id: string;
   label: string;
+  /** Cadência define quantas caixas a tarefa tem no mês (ver period.ts). */
+  cadence: Cadence;
+  /** Para cadência "count": total de vezes no mês. */
+  target?: number;
 };
 
 export type Section = {
@@ -53,18 +58,18 @@ export const PHASES: Phase[] = [
         key: "vendas",
         title: "Vendas",
         tasks: [
-          { id: "m1-v1", label: "Responder todo lead em menos de 5 minutos" },
-          { id: "m1-v2", label: "Sem perguntas abertas — usar opções direcionadas" },
-          { id: "m1-v3", label: 'Abrir com "Revenda ou Fardamento?"' },
+          { id: "m1-v1", label: "Responder todo lead em menos de 5 minutos", cadence: "daily" },
+          { id: "m1-v2", label: "Sem perguntas abertas — usar opções direcionadas", cadence: "daily" },
+          { id: "m1-v3", label: 'Abrir com "Revenda ou Fardamento?"', cadence: "daily" },
         ],
       },
       {
         key: "instagram",
         title: "Instagram",
         tasks: [
-          { id: "m1-i1", label: "5 Stories/dia: bastidores e máquinas operando" },
-          { id: "m1-i2", label: "Captar barulho real de fábrica nos vídeos" },
-          { id: "m1-i3", label: "Feed 3x/semana com zoom extremo nas costuras" },
+          { id: "m1-i1", label: "Postar os 5 Stories do dia (bastidores, máquinas)", cadence: "daily" },
+          { id: "m1-i2", label: "Captar barulho real de fábrica nos vídeos", cadence: "daily" },
+          { id: "m1-i3", label: "Feed com zoom extremo nas costuras (3x/semana)", cadence: "count", target: 12 },
         ],
       },
       {
@@ -72,9 +77,9 @@ export const PHASES: Phase[] = [
         title: "Criativos · Tráfego",
         gated: true,
         tasks: [
-          { id: "m1-c1", label: "Subir 6 anúncios mostrando escala fabril" },
-          { id: "m1-c2", label: "Validar proporção 9:16 no checklist" },
-          { id: "m1-c3", label: "Aprovar revisão ortográfica antes de publicar" },
+          { id: "m1-c1", label: "Subir anúncio mostrando escala fabril", cadence: "count", target: 6 },
+          { id: "m1-c2", label: "Validar proporção 9:16 no checklist", cadence: "once" },
+          { id: "m1-c3", label: "Aprovar revisão ortográfica antes de publicar", cadence: "once" },
         ],
       },
     ],
@@ -100,18 +105,18 @@ export const PHASES: Phase[] = [
         key: "vendas",
         title: "Vendas",
         tasks: [
-          { id: "m2-v1", label: "Aplicar BANT: Budget, Authority, Need, Time" },
-          { id: "m2-v2", label: "Ancorar o preço antes do orçamento final" },
-          { id: "m2-v3", label: "Registrar o critério de qualificação no CRM" },
+          { id: "m2-v1", label: "Qualificar com BANT (Budget, Authority, Need, Time)", cadence: "daily" },
+          { id: "m2-v2", label: "Ancorar o preço antes do orçamento final", cadence: "daily" },
+          { id: "m2-v3", label: "Registrar o critério de qualificação no CRM", cadence: "daily" },
         ],
       },
       {
         key: "instagram",
         title: "Instagram",
         tasks: [
-          { id: "m2-i1", label: "5 Stories/dia de prova social: caixas saindo" },
-          { id: "m2-i2", label: "Postar prints de clientes satisfeitos" },
-          { id: "m2-i3", label: "Feed 4x/semana" },
+          { id: "m2-i1", label: "Postar os 5 Stories do dia (prova social, envios)", cadence: "daily" },
+          { id: "m2-i2", label: "Postar print de cliente satisfeito", cadence: "count", target: 8 },
+          { id: "m2-i3", label: "Feed (4x/semana)", cadence: "count", target: 16 },
         ],
       },
       {
@@ -119,9 +124,9 @@ export const PHASES: Phase[] = [
         title: "Criativos · Tráfego",
         gated: true,
         tasks: [
-          { id: "m2-c1", label: "Subir 8 anúncios focados na dor" },
-          { id: "m2-c2", label: 'Ângulo "Bonés que desbotam vs. Qualidade J2A"' },
-          { id: "m2-c3", label: "Validar 9:16 e ortografia no checklist" },
+          { id: "m2-c1", label: 'Subir anúncio de dor ("desbota vs. J2A")', cadence: "count", target: 8 },
+          { id: "m2-c2", label: "Definir o ângulo da campanha do mês", cadence: "once" },
+          { id: "m2-c3", label: "Validar 9:16 e ortografia no checklist", cadence: "once" },
         ],
       },
     ],
@@ -147,17 +152,17 @@ export const PHASES: Phase[] = [
         key: "vendas",
         title: "Vendas",
         tasks: [
-          { id: "m3-v1", label: "Dividir o CRM: SDR qualifica o 1º contato" },
-          { id: "m3-v2", label: "Closer assume leads quentes e orçamentos grandes" },
-          { id: "m3-v3", label: "Prospecção ativa no Seridó: barbearias, clínicas, conveniências" },
+          { id: "m3-v1", label: "Dividir o CRM: SDR qualifica o 1º contato", cadence: "once" },
+          { id: "m3-v2", label: "Closer assume leads quentes e orçamentos grandes", cadence: "once" },
+          { id: "m3-v3", label: "Prospecção ativa no Seridó (barbearias, clínicas)", cadence: "daily" },
         ],
       },
       {
         key: "instagram",
         title: "Instagram",
         tasks: [
-          { id: "m3-i1", label: "Mostrar a rotina acelerada dos vendedores" },
-          { id: "m3-i2", label: "1 Reel/semana de humor: expectativa vs. realidade da logo" },
+          { id: "m3-i1", label: "Mostrar a rotina acelerada dos vendedores", cadence: "daily" },
+          { id: "m3-i2", label: "Reel de humor (expectativa vs. realidade da logo)", cadence: "count", target: 4 },
         ],
       },
       {
@@ -165,8 +170,8 @@ export const PHASES: Phase[] = [
         title: "Criativos · Tráfego",
         gated: true,
         tasks: [
-          { id: "m3-c1", label: "Subir 10 anúncios com depoimentos B2B em vídeo" },
-          { id: "m3-c2", label: "Validar 9:16 e ortografia no checklist" },
+          { id: "m3-c1", label: "Subir anúncio com depoimento B2B em vídeo", cadence: "count", target: 10 },
+          { id: "m3-c2", label: "Validar 9:16 e ortografia no checklist", cadence: "once" },
         ],
       },
     ],
@@ -179,7 +184,7 @@ export const PHASES: Phase[] = [
     foco: "LTV",
     icon: Repeat,
     metrics: [
-      { label: "Follow-up", value: "+72h por ligação" },
+      { label: "Follow-up", value: "+72h" },
       { label: "Upsell", value: "Bucket Hat" },
       { label: "Novos anúncios", value: "12" },
     ],
@@ -192,15 +197,15 @@ export const PHASES: Phase[] = [
         key: "vendas",
         title: "Vendas",
         tasks: [
-          { id: "m4-v1", label: "Ligar para todo lead travado há mais de 72h" },
-          { id: "m4-v2", label: "Upsell automático: oferecer Bucket Hat no fechamento" },
+          { id: "m4-v1", label: "Ligar para todo lead travado há mais de 72h", cadence: "daily" },
+          { id: "m4-v2", label: "Oferecer Bucket Hat no fechamento (upsell)", cadence: "daily" },
         ],
       },
       {
         key: "instagram",
         title: "Instagram",
         tasks: [
-          { id: "m4-i1", label: 'Gatilho de escassez: "últimos lotes da quinzena na esteira"' },
+          { id: "m4-i1", label: 'Gatilho de escassez ("últimos lotes da quinzena")', cadence: "daily" },
         ],
       },
       {
@@ -208,9 +213,9 @@ export const PHASES: Phase[] = [
         title: "Criativos · Tráfego",
         gated: true,
         tasks: [
-          { id: "m4-c1", label: "Subir 12 anúncios escalando os melhores formatos" },
-          { id: "m4-c2", label: "Aumentar orçamento nos campeões dos meses anteriores" },
-          { id: "m4-c3", label: "Validar 9:16 e ortografia no checklist" },
+          { id: "m4-c1", label: "Subir anúncio escalando os melhores formatos", cadence: "count", target: 12 },
+          { id: "m4-c2", label: "Aumentar orçamento nos campeões dos meses anteriores", cadence: "once" },
+          { id: "m4-c3", label: "Validar 9:16 e ortografia no checklist", cadence: "once" },
         ],
       },
     ],

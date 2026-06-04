@@ -9,17 +9,21 @@ export type Employee = {
   role: Role;
 };
 
-export type Completion = {
+/**
+ * Um log = uma caixa marcada por um funcionário.
+ * `slot` identifica a caixa dentro da tarefa:
+ *   - diária  → data do dia 'YYYY-MM-DD'
+ *   - contagem → índice da unidade '1'..'N'
+ *   - once     → 'done'
+ * `marked_at` é quando foi marcado de fato (registro de quem/quando).
+ */
+export type TaskLog = {
   task_id: string;
   employee_id: string;
-  completed_at: string; // ISO
+  slot: string;
+  marked_at: string; // ISO
 };
 
-/**
- * Equipe padrão usada quando o Supabase ainda não está conectado.
- * Quando o Supabase está ligado, a lista vem da tabela `employees`.
- * Renomeie e troque os PINs direto no Supabase (ou aqui, no modo local).
- */
 export const DEFAULT_EMPLOYEES: Employee[] = [
   { id: "func-1", name: "Funcionário 1", pin: "1111", role: "vendedor" },
   { id: "func-2", name: "Funcionário 2", pin: "2222", role: "vendedor" },
@@ -27,20 +31,20 @@ export const DEFAULT_EMPLOYEES: Employee[] = [
   { id: "gestor", name: "Gestor", pin: "9999", role: "gestor" },
 ];
 
-const LS_COMPLETIONS = "j2a_completions";
+const LS_LOGS = "j2a_logs";
 
-function readLocal(): Completion[] {
+function readLocal(): TaskLog[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(LS_COMPLETIONS) || "[]");
+    return JSON.parse(localStorage.getItem(LS_LOGS) || "[]");
   } catch {
     return [];
   }
 }
 
-function writeLocal(rows: Completion[]) {
+function writeLocal(rows: TaskLog[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(LS_COMPLETIONS, JSON.stringify(rows));
+  localStorage.setItem(LS_LOGS, JSON.stringify(rows));
 }
 
 export async function fetchEmployees(): Promise<Employee[]> {
@@ -55,32 +59,35 @@ export async function fetchEmployees(): Promise<Employee[]> {
   return DEFAULT_EMPLOYEES;
 }
 
-export async function fetchCompletions(): Promise<Completion[]> {
+export async function fetchLogs(): Promise<TaskLog[]> {
   if (supabase) {
     const { data, error } = await supabase
-      .from("task_completions")
-      .select("task_id, employee_id, completed_at");
-    if (!error && data) return data as Completion[];
+      .from("task_logs")
+      .select("task_id, employee_id, slot, marked_at");
+    if (!error && data) return data as TaskLog[];
   }
   return readLocal();
 }
 
-export async function addCompletion(
+export async function addLog(
   taskId: string,
-  employeeId: string
-): Promise<Completion> {
-  const row: Completion = {
+  employeeId: string,
+  slot: string
+): Promise<TaskLog> {
+  const row: TaskLog = {
     task_id: taskId,
     employee_id: employeeId,
-    completed_at: new Date().toISOString(),
+    slot,
+    marked_at: new Date().toISOString(),
   };
   if (supabase) {
     await supabase
-      .from("task_completions")
-      .upsert(row, { onConflict: "task_id,employee_id" });
+      .from("task_logs")
+      .upsert(row, { onConflict: "task_id,employee_id,slot" });
   } else {
     const rows = readLocal().filter(
-      (r) => !(r.task_id === taskId && r.employee_id === employeeId)
+      (r) =>
+        !(r.task_id === taskId && r.employee_id === employeeId && r.slot === slot)
     );
     rows.push(row);
     writeLocal(rows);
@@ -88,20 +95,27 @@ export async function addCompletion(
   return row;
 }
 
-export async function removeCompletion(
+export async function removeLog(
   taskId: string,
-  employeeId: string
+  employeeId: string,
+  slot: string
 ): Promise<void> {
   if (supabase) {
     await supabase
-      .from("task_completions")
+      .from("task_logs")
       .delete()
       .eq("task_id", taskId)
-      .eq("employee_id", employeeId);
+      .eq("employee_id", employeeId)
+      .eq("slot", slot);
   } else {
     writeLocal(
       readLocal().filter(
-        (r) => !(r.task_id === taskId && r.employee_id === employeeId)
+        (r) =>
+          !(
+            r.task_id === taskId &&
+            r.employee_id === employeeId &&
+            r.slot === slot
+          )
       )
     );
   }

@@ -23,18 +23,24 @@ insert into employees (name, pin, role) values
 on conflict do nothing;
 
 -- ─────────────────────────────────────────────────────────────
--- Conclusão de tarefa do playbook (1 linha por tarefa por funcionário)
--- task_id é o id da tarefa em src/lib/playbook.ts (ex.: 'm1-v1')
+-- Logs de execução: 1 linha por CAIXA marcada por funcionário.
+-- task_id  = id da tarefa em src/lib/playbook.ts (ex.: 'm1-v1')
+-- slot     = identifica a caixa dentro da tarefa:
+--              diária   → data do dia 'YYYY-MM-DD'
+--              contagem → índice da unidade '1'..'N'
+--              once     → 'done'
+-- marked_at = quando a caixa foi marcada (quem/quando).
 -- ─────────────────────────────────────────────────────────────
-create table if not exists task_completions (
+create table if not exists task_logs (
   id            uuid primary key default gen_random_uuid(),
   task_id       text not null,
   employee_id   uuid not null references employees(id) on delete cascade,
-  completed_at  timestamptz not null default now(),
-  unique (task_id, employee_id)
+  slot          text not null,
+  marked_at     timestamptz not null default now(),
+  unique (task_id, employee_id, slot)
 );
 
-create index if not exists idx_completions_employee on task_completions (employee_id);
+create index if not exists idx_logs_employee on task_logs (employee_id);
 
 -- ─────────────────────────────────────────────────────────────
 -- CRM (opcional) — leads e criativos
@@ -66,12 +72,12 @@ create table if not exists creatives (
 -- Liberamos leitura/escrita pela anon key. Para produção pública,
 -- troque por Supabase Auth + policies por usuário.
 -- ─────────────────────────────────────────────────────────────
-alter table employees        enable row level security;
-alter table task_completions enable row level security;
-alter table leads            enable row level security;
-alter table creatives        enable row level security;
+alter table employees  enable row level security;
+alter table task_logs  enable row level security;
+alter table leads      enable row level security;
+alter table creatives  enable row level security;
 
-create policy "anon full employees"        on employees        for all using (true) with check (true);
-create policy "anon full task_completions" on task_completions for all using (true) with check (true);
-create policy "anon full leads"            on leads            for all using (true) with check (true);
-create policy "anon full creatives"        on creatives        for all using (true) with check (true);
+create policy "anon full employees"  on employees  for all using (true) with check (true);
+create policy "anon full task_logs"  on task_logs  for all using (true) with check (true);
+create policy "anon full leads"      on leads      for all using (true) with check (true);
+create policy "anon full creatives"  on creatives  for all using (true) with check (true);
