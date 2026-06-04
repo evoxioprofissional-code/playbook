@@ -7,9 +7,11 @@ import {
   Clock,
   TriangleAlert,
   Activity,
+  Trophy,
+  Flame,
 } from "lucide-react";
 import { PHASES } from "@/lib/playbook";
-import { slotCount, formatWhen } from "@/lib/period";
+import { slotCount, formatWhen, dayKey } from "@/lib/period";
 import {
   fetchEmployees,
   fetchLogs,
@@ -46,6 +48,25 @@ const TOTAL_SLOTS = Array.from(SLOTS_PER_PHASE.values()).reduce(
   0
 );
 
+// Sequência de dias seguidos com pelo menos 1 caixa diária marcada.
+function computeStreak(logs: TaskLog[]) {
+  const set = new Set(
+    logs.map((l) => l.slot).filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s))
+  );
+  const key = (d: Date) => dayKey(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = new Date();
+  if (!set.has(key(day))) {
+    day.setDate(day.getDate() - 1);
+    if (!set.has(key(day))) return 0; // nem hoje nem ontem
+  }
+  let streak = 0;
+  while (set.has(key(day))) {
+    streak++;
+    day.setDate(day.getDate() - 1);
+  }
+  return streak;
+}
+
 // Conta logs por (employee, phase) e total, respeitando o teto de cada tarefa.
 function countByPhase(logs: TaskLog[], phaseId: string) {
   const perTask = new Map<string, number>();
@@ -77,7 +98,6 @@ export default function TeamBoard() {
     load();
   }, []);
 
-  const vendedores = employees.filter((e) => e.role === "vendedor");
   const nameById = useMemo(
     () => new Map(employees.map((e) => [e.id, e.name])),
     [employees]
@@ -90,6 +110,20 @@ export default function TeamBoard() {
         .slice(0, 14),
     [logs]
   );
+
+  // Estatísticas por vendedor, ordenadas para o ranking.
+  const stats = useMemo(() => {
+    return employees
+      .filter((e) => e.role === "vendedor")
+      .map((emp) => {
+        const mine = logs.filter((c) => c.employee_id === emp.id);
+        const done = PHASES.reduce((s, p) => s + countByPhase(mine, p.id), 0);
+        const streak = computeStreak(mine);
+        const last = mine.map((c) => c.marked_at).sort().at(-1);
+        return { emp, mine, done, streak, last };
+      })
+      .sort((a, b) => b.done - a.done || b.streak - a.streak);
+  }, [employees, logs]);
 
   return (
     <div className="space-y-8 px-6 py-6 sm:px-8">
@@ -117,15 +151,55 @@ export default function TeamBoard() {
         </div>
       )}
 
+      {/* Ranking / pódio */}
+      {stats.some((s) => s.done > 0) && (
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <Trophy size={16} className="text-gold-400" />
+            <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-300">
+              Ranking do mês
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {stats.map((s, i) => {
+              const medal = ["🥇", "🥈", "🥉"][i] ?? `${i + 1}º`;
+              const leader = i === 0 && s.done > 0;
+              return (
+                <div
+                  key={s.emp.id}
+                  className={`flex items-center gap-3 rounded-2xl border p-4 ${
+                    leader
+                      ? "border-gold-500/40 bg-gradient-to-br from-gold-500/15 to-transparent"
+                      : "border-ink-700 bg-ink-900/80"
+                  }`}
+                >
+                  <span className="text-2xl">{medal}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-extrabold text-white">
+                      {s.emp.name}
+                    </p>
+                    <p className="text-[11px] text-zinc-500">{s.done} caixas</p>
+                  </div>
+                  <span
+                    className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                      s.streak > 0
+                        ? "bg-flame-500/15 text-flame-400"
+                        : "bg-ink-800 text-zinc-500"
+                    }`}
+                    title="Dias seguidos marcando"
+                  >
+                    <Flame size={12} /> {s.streak}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {vendedores.map((emp) => {
-          const mine = logs.filter((c) => c.employee_id === emp.id);
-          const done = PHASES.reduce(
-            (sum, p) => sum + countByPhase(mine, p.id),
-            0
-          );
+        {stats.map(({ emp, mine, done, streak, last }) => {
           const pct = Math.round((done / TOTAL_SLOTS) * 100);
-          const last = mine.map((c) => c.marked_at).sort().at(-1);
           return (
             <article
               key={emp.id}
@@ -140,9 +214,17 @@ export default function TeamBoard() {
                     {emp.name}
                   </h3>
                 </div>
-                <span className="text-xl font-extrabold text-flame-400">
-                  {pct}%
-                </span>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="flex items-center gap-1 rounded-full bg-flame-500/15 px-2 py-0.5 text-[11px] font-bold text-flame-400"
+                    title="Dias seguidos"
+                  >
+                    <Flame size={12} /> {streak}
+                  </span>
+                  <span className="text-xl font-extrabold text-flame-400">
+                    {pct}%
+                  </span>
+                </div>
               </div>
 
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-800">

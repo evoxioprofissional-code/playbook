@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,11 +12,14 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Flame, GripVertical, Plus } from "lucide-react";
+import { Flame, GripVertical, Plus, Timer, Target } from "lucide-react";
 import {
   COLUMNS,
   SEED_LEADS,
+  META_MES,
   formatBRL,
+  formatAge,
+  slaStatus,
   type ColumnId,
   type Lead,
 } from "@/lib/kanban";
@@ -26,6 +29,13 @@ export default function KanbanBoard() {
   const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Relógio do SLA — atualiza a cada segundo.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -39,9 +49,7 @@ export default function KanbanBoard() {
     const over = e.over?.id as ColumnId | undefined;
     if (!over) return;
     setLeads((prev) =>
-      prev.map((l) =>
-        l.id === e.active.id ? { ...l, column: over } : l
-      )
+      prev.map((l) => (l.id === e.active.id ? { ...l, column: over } : l))
     );
   };
 
@@ -51,14 +59,46 @@ export default function KanbanBoard() {
   const won = leads
     .filter((l) => l.column === "ganho")
     .reduce((s, l) => s + l.value, 0);
+  const goalPct = Math.min(100, Math.round((won / META_MES) * 100));
+  const closed = leads.filter((l) => l.column === "ganho").length;
+  const conv = leads.length ? Math.round((closed / leads.length) * 100) : 0;
+  const slaBreaches = leads.filter(
+    (l) => l.column === "novo" && !slaStatus(l.createdAt, now).ok
+  ).length;
 
   return (
     <div className="flex h-[calc(100vh-89px)] flex-col">
+      {/* Meta do mês */}
+      <div className="px-6 pt-4 sm:px-8">
+        <div className="rounded-2xl border border-ink-700 bg-ink-900/80 p-4">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-300">
+              <Target size={15} className="text-flame-400" /> Meta do mês
+            </span>
+            <span className="text-sm font-bold text-zinc-300">
+              <span className="text-emerald-400">{formatBRL(won)}</span>
+              <span className="text-zinc-600"> / {formatBRL(META_MES)}</span>
+              <span className="ml-2 text-flame-400">{goalPct}%</span>
+            </span>
+          </div>
+          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-ink-800">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all duration-700"
+              style={{ width: `${goalPct}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
       {/* KPIs */}
       <div className="flex flex-wrap items-center gap-3 px-6 py-4 sm:px-8">
         <Kpi label="Em pipeline" value={formatBRL(pipeline)} tone="flame" />
-        <Kpi label="Fechado" value={formatBRL(won)} tone="emerald" />
-        <Kpi label="Leads ativos" value={String(leads.length)} tone="zinc" />
+        <Kpi label="Conversão" value={`${conv}%`} tone="emerald" />
+        <Kpi
+          label="SLA estourado"
+          value={String(slaBreaches)}
+          tone={slaBreaches ? "rose" : "zinc"}
+        />
         <button
           onClick={() => setAdding(true)}
           className="ml-auto flex items-center gap-1.5 rounded-xl bg-flame-500 px-3.5 py-2 text-sm font-bold text-black transition hover:bg-flame-400"
@@ -67,7 +107,6 @@ export default function KanbanBoard() {
         </button>
       </div>
 
-      {/* Board */}
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex flex-1 gap-4 overflow-x-auto px-6 pb-6 sm:px-8">
           {COLUMNS.map((col) => (
@@ -75,12 +114,13 @@ export default function KanbanBoard() {
               key={col.id}
               col={col}
               leads={leads.filter((l) => l.column === col.id)}
+              now={now}
             />
           ))}
         </div>
 
         <DragOverlay dropAnimation={null}>
-          {activeLead ? <LeadCard lead={activeLead} overlay /> : null}
+          {activeLead ? <LeadCard lead={activeLead} now={now} overlay /> : null}
         </DragOverlay>
       </DndContext>
 
@@ -103,17 +143,19 @@ function Kpi({
 }: {
   label: string;
   value: string;
-  tone: "flame" | "emerald" | "zinc";
+  tone: "flame" | "emerald" | "zinc" | "rose";
 }) {
   const ring = {
     flame: "ring-flame-500/30",
     emerald: "ring-emerald-500/30",
     zinc: "ring-ink-600",
+    rose: "ring-rose-500/40",
   }[tone];
   const text = {
     flame: "text-flame-400",
     emerald: "text-emerald-300",
     zinc: "text-white",
+    rose: "text-rose-400",
   }[tone];
   return (
     <div className={`rounded-xl bg-ink-900 px-4 py-2.5 ring-1 ${ring}`}>
@@ -125,7 +167,15 @@ function Kpi({
   );
 }
 
-function KanbanColumn({ col, leads }: { col: (typeof COLUMNS)[number]; leads: Lead[] }) {
+function KanbanColumn({
+  col,
+  leads,
+  now,
+}: {
+  col: (typeof COLUMNS)[number];
+  leads: Lead[];
+  now: number;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: col.id });
   const total = leads.reduce((s, l) => s + l.value, 0);
 
@@ -153,7 +203,7 @@ function KanbanColumn({ col, leads }: { col: (typeof COLUMNS)[number]; leads: Le
         }`}
       >
         {leads.map((lead) => (
-          <DraggableLead key={lead.id} lead={lead} />
+          <DraggableLead key={lead.id} lead={lead} now={now} />
         ))}
         {leads.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-zinc-600">
@@ -165,7 +215,7 @@ function KanbanColumn({ col, leads }: { col: (typeof COLUMNS)[number]; leads: Le
   );
 }
 
-function DraggableLead({ lead }: { lead: Lead }) {
+function DraggableLead({ lead, now }: { lead: Lead; now: number }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: lead.id,
   });
@@ -176,25 +226,36 @@ function DraggableLead({ lead }: { lead: Lead }) {
       {...listeners}
       className={`touch-none ${isDragging ? "opacity-30" : ""}`}
     >
-      <LeadCard lead={lead} />
+      <LeadCard lead={lead} now={now} />
     </div>
   );
 }
 
-function LeadCard({ lead, overlay }: { lead: Lead; overlay?: boolean }) {
+function LeadCard({
+  lead,
+  now,
+  overlay,
+}: {
+  lead: Lead;
+  now: number;
+  overlay?: boolean;
+}) {
+  const isNew = lead.column === "novo";
+  const sla = isNew ? slaStatus(lead.createdAt, now) : null;
+
   return (
     <div
       className={`group cursor-grab rounded-xl border bg-ink-850 p-3 active:cursor-grabbing ${
         overlay
-          ? "border-flame-500/60 shadow-glow rotate-2"
-          : "border-ink-700 hover:border-flame-500/40"
+          ? "rotate-2 border-flame-500/60 shadow-glow"
+          : sla && !sla.ok
+            ? "border-rose-500/60 ring-1 ring-rose-500/30"
+            : "border-ink-700 hover:border-flame-500/40"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-bold leading-tight text-white">
-            {lead.name}
-          </p>
+          <p className="text-sm font-bold leading-tight text-white">{lead.name}</p>
           <p className="text-xs text-zinc-500">{lead.company}</p>
         </div>
         <GripVertical
@@ -202,6 +263,20 @@ function LeadCard({ lead, overlay }: { lead: Lead; overlay?: boolean }) {
           className="mt-0.5 shrink-0 text-zinc-600 group-hover:text-zinc-400"
         />
       </div>
+
+      {/* SLA do lead novo */}
+      {sla && (
+        <div
+          className={`mt-2 flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-bold ${
+            sla.ok
+              ? "bg-emerald-500/15 text-emerald-300"
+              : "animate-pulse bg-rose-500/20 text-rose-300"
+          }`}
+        >
+          <Timer size={12} />
+          {sla.ok ? `Responder em ${sla.label}` : `SLA estourou há ${sla.label}`}
+        </div>
+      )}
 
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <span
@@ -223,9 +298,14 @@ function LeadCard({ lead, overlay }: { lead: Lead; overlay?: boolean }) {
         )}
       </div>
 
-      <p className="mt-2.5 text-sm font-extrabold text-gold-400">
-        {formatBRL(lead.value)}
-      </p>
+      <div className="mt-2.5 flex items-center justify-between">
+        <p className="text-sm font-extrabold text-gold-400">
+          {formatBRL(lead.value)}
+        </p>
+        <p className="text-[10px] font-medium text-zinc-600">
+          {formatAge(lead.createdAt, now)}
+        </p>
+      </div>
     </div>
   );
 }
@@ -261,6 +341,7 @@ function NewLeadModal({
       qty,
       value: qty * 26,
       column: "novo",
+      createdAt: new Date().toISOString(),
     });
     reset();
   };

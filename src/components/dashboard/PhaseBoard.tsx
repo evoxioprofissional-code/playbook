@@ -11,6 +11,8 @@ import {
   Megaphone,
   LockKeyhole,
   CalendarDays,
+  ListChecks,
+  Sunrise,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -146,6 +148,10 @@ export default function PhaseBoard() {
         })}
       </div>
 
+      {user && !loading && (
+        <HojePanel phase={active} mine={mine} toggle={toggle} />
+      )}
+
       <PhaseDetail
         phase={active}
         mine={mine}
@@ -156,6 +162,81 @@ export default function PhaseBoard() {
         onApprove={() => setApproved((p) => new Set(p).add(active.id))}
         pct={phasePct(active)}
       />
+    </div>
+  );
+}
+
+function HojePanel({
+  phase,
+  mine,
+  toggle,
+}: {
+  phase: Phase;
+  mine: Set<string>;
+  toggle: (taskId: string, slot: string) => void;
+}) {
+  const { year, month, days, todayDay } = monthInfo();
+  const today = dayKey(year, month, todayDay);
+
+  const daily = phase.sections.flatMap((s) =>
+    s.tasks.filter((t) => t.cadence === "daily")
+  );
+  if (daily.length === 0) return null;
+
+  const pending = daily.filter((t) => !mine.has(slotKey(t.id, today)));
+  const done = daily.length - pending.length;
+  const allDone = pending.length === 0;
+
+  return (
+    <div className="px-6 pt-5 sm:px-8">
+      <div
+        className={`rounded-2xl border p-4 ${
+          allDone
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : "border-flame-500/30 bg-gradient-to-r from-flame-600/15 to-transparent"
+        }`}
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-extrabold uppercase tracking-wide text-white">
+            {allDone ? (
+              <Sunrise size={16} className="text-emerald-400" />
+            ) : (
+              <ListChecks size={16} className="text-flame-400" />
+            )}
+            Hoje · dia {todayDay}
+          </h2>
+          <span
+            className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+              allDone
+                ? "bg-emerald-500/20 text-emerald-300"
+                : "bg-ink-800 text-flame-400"
+            }`}
+          >
+            {done}/{daily.length} feitas
+          </span>
+        </div>
+
+        {allDone ? (
+          <p className="mt-2 text-sm text-emerald-300">
+            Dia fechado. Todas as tarefas diárias da fase concluídas — manda ver no pipeline.
+          </p>
+        ) : (
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {pending.map((t) => (
+              <li key={t.id}>
+                <button
+                  onClick={() => toggle(t.id, today)}
+                  className="flex items-center gap-2 rounded-xl border border-ink-700 bg-ink-900 px-3 py-2 text-left text-sm text-zinc-200 transition hover:border-flame-500/50 hover:text-white"
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded border border-ink-600" />
+                  <span className="max-w-[15rem] truncate">{t.label}</span>
+                  <span className="text-[11px] font-bold text-flame-400">Feito</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
