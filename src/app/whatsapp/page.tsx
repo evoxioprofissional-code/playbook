@@ -1,11 +1,11 @@
 import PageHeader from "@/components/PageHeader";
-import WhatsappConnect from "@/components/whatsapp/WhatsappConnect";
+import WhatsappClient from "@/components/whatsapp/WhatsappClient";
 
 export default function WhatsappPage() {
   return (
     <div>
-      <PageHeader eyebrow="Conexão · Evolution API" title="WhatsApp" />
-      <WhatsappConnect />
+      <PageHeader eyebrow="Conversas · Evolution API" title="WhatsApp" />
+      <WhatsappClient />
     </div>
   );
 }

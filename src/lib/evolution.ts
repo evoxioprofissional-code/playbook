@@ -45,6 +45,23 @@ export async function evo(
   }
 }
 
+/** Extrai um texto legível de qualquer tipo de mensagem do WhatsApp. */
+export function extractText(message: any): string {
+  if (!message) return "";
+  if (message.conversation) return message.conversation;
+  if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
+  if (message.imageMessage)
+    return message.imageMessage.caption ? `📷 ${message.imageMessage.caption}` : "📷 Imagem";
+  if (message.videoMessage)
+    return message.videoMessage.caption ? `🎬 ${message.videoMessage.caption}` : "🎬 Vídeo";
+  if (message.audioMessage) return "🎤 Áudio";
+  if (message.documentMessage) return `📄 ${message.documentMessage.fileName || "Documento"}`;
+  if (message.stickerMessage) return "Figurinha";
+  if (message.locationMessage) return "📍 Localização";
+  if (message.contactMessage) return "👤 Contato";
+  return "Mensagem";
+}
+
 /** Número só com dígitos e código do país (assume Brasil 55 se faltar). */
 export function normalizeNumber(n: string): string {
   const d = (n || "").replace(/\D/g, "");

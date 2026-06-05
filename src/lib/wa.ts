@@ -55,6 +55,42 @@ export async function waSend(number: string, text: string): Promise<{ ok?: boole
   return r.json();
 }
 
+export type WaChat = {
+  jid: string;
+  number: string;
+  name: string | null;
+  pic: string | null;
+  preview: string;
+  fromMe: boolean;
+  time: string | null;
+  unread: number;
+};
+
+export type WaMessage = { id: string; fromMe: boolean; text: string; ts: number };
+
+export async function waChats(): Promise<{ chats?: WaChat[]; error?: string }> {
+  try {
+    const r = await fetch("/api/wa/chats", { method: "POST", headers: headers(), cache: "no-store" });
+    return await r.json();
+  } catch {
+    return { error: "Sem conexão" };
+  }
+}
+
+export async function waMessages(jid: string): Promise<{ messages?: WaMessage[]; error?: string }> {
+  try {
+    const r = await fetch("/api/wa/messages", {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ jid }),
+      cache: "no-store",
+    });
+    return await r.json();
+  } catch {
+    return { error: "Sem conexão" };
+  }
+}
+
 export async function waLogout(): Promise<{ ok?: boolean }> {
   const r = await fetch("/api/wa/logout", { method: "POST", headers: headers() });
   return r.json();
