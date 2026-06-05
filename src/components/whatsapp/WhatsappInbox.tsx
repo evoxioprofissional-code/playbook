@@ -9,6 +9,11 @@ import {
   MessageSquare,
   ImageIcon,
   Mic,
+  ChevronDown,
+  Zap,
+  Plus,
+  Trash2,
+  Check,
   X,
 } from "lucide-react";
 import {
@@ -112,6 +117,12 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const [attach, setAttach] = useState<{ dataUrl: string; mimetype: string; name: string } | null>(null);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [micOpen, setMicOpen] = useState(false);
+  const [quickReplies, setQuickReplies] = useState<string[]>([]);
+  const [newReply, setNewReply] = useState("");
+  const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
+  const [selectedMic, setSelectedMic] = useState<string>("default");
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<MediaRecorder | null>(null);
@@ -163,6 +174,44 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, active?.jid]);
+
+  // Carrega as respostas rápidas salvas.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("j2a_quick_replies");
+      if (raw) setQuickReplies(JSON.parse(raw));
+    } catch {
+      /* ignora */
+    }
+  }, []);
+
+  function saveQuick(list: string[]) {
+    setQuickReplies(list);
+    localStorage.setItem("j2a_quick_replies", JSON.stringify(list));
+  }
+  function addQuickReply() {
+    const v = newReply.trim();
+    if (!v) return;
+    saveQuick([...quickReplies, v]);
+    setNewReply("");
+  }
+  function removeQuickReply(i: number) {
+    saveQuick(quickReplies.filter((_, idx) => idx !== i));
+  }
+  function useQuickReply(r: string) {
+    setText((prev) => (prev.trim() ? `${prev} ${r}` : r));
+    setQuickOpen(false);
+  }
+
+  async function loadMics() {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const ins = devs.filter((d) => d.kind === "audioinput");
+      setMics(ins.map((d, i) => ({ id: d.deviceId, label: d.label || `Microfone ${i + 1}` })));
+    } catch {
+      setMics([]);
+    }
+  }
 
   async function reload() {
     if (!active) return;
@@ -226,7 +275,11 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   async function startRec() {
     if (!active) return;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audio =
+        selectedMic && selectedMic !== "default"
+          ? { deviceId: { exact: selectedMic } }
+          : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio });
       const mr = new MediaRecorder(stream);
       chunksRef.current = [];
       cancelRef.current = false;
@@ -428,7 +481,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
               </div>
 
               {/* Composer */}
-              <div className="border-t border-ink-700 p-3">
+              <div className="relative border-t border-ink-700 p-3">
                 <input
                   ref={fileRef}
                   type="file"
@@ -490,6 +543,109 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                     >
                       <Mic size={18} />
                     </button>
+
+                    {/* Seletor de microfone */}
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={() => {
+                          if (!micOpen) loadMics();
+                          setMicOpen((o) => !o);
+                          setQuickOpen(false);
+                        }}
+                        title="Escolher microfone"
+                        className="flex h-10 w-8 items-center justify-center rounded-xl bg-ink-800 text-zinc-400 ring-1 ring-ink-700 hover:text-white"
+                      >
+                        <ChevronDown size={16} />
+                      </button>
+                      {micOpen && (
+                        <div className="absolute bottom-full left-0 z-20 mb-2 w-56 rounded-xl border border-ink-700 bg-ink-850 p-1.5 shadow-2xl">
+                          <p className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+                            Microfone
+                          </p>
+                          <MicRow
+                            label="Padrão do sistema"
+                            active={selectedMic === "default"}
+                            onClick={() => {
+                              setSelectedMic("default");
+                              setMicOpen(false);
+                            }}
+                          />
+                          {mics.map((m) => (
+                            <MicRow
+                              key={m.id || m.label}
+                              label={m.label}
+                              active={selectedMic === m.id}
+                              onClick={() => {
+                                setSelectedMic(m.id);
+                                setMicOpen(false);
+                              }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Respostas rápidas */}
+                    <div className="relative shrink-0">
+                      <button
+                        onClick={() => {
+                          setQuickOpen((o) => !o);
+                          setMicOpen(false);
+                        }}
+                        title="Respostas rápidas"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-ink-800 text-zinc-300 ring-1 ring-ink-700 hover:text-flame-400"
+                      >
+                        <Zap size={18} />
+                      </button>
+                      {quickOpen && (
+                        <div className="absolute bottom-full left-0 z-20 mb-2 w-72 rounded-xl border border-ink-700 bg-ink-850 p-3 shadow-2xl">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-zinc-300">
+                            Respostas rápidas
+                          </p>
+                          {quickReplies.length === 0 ? (
+                            <p className="mb-3 text-xs text-zinc-500">
+                              Nenhuma resposta salva. Crie modelos abaixo (ex.:
+                              saudação, endereço, formas de pagamento).
+                            </p>
+                          ) : (
+                            <ul className="mb-3 max-h-56 space-y-1 overflow-y-auto">
+                              {quickReplies.map((r, i) => (
+                                <li key={i} className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => useQuickReply(r)}
+                                    className="min-w-0 flex-1 truncate rounded-lg px-2 py-1.5 text-left text-sm text-zinc-200 hover:bg-ink-800"
+                                  >
+                                    {r}
+                                  </button>
+                                  <button
+                                    onClick={() => removeQuickReply(i)}
+                                    className="rounded-lg p-1.5 text-zinc-500 hover:text-rose-400"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={newReply}
+                              onChange={(e) => setNewReply(e.target.value)}
+                              onKeyDown={(e) => e.key === "Enter" && addQuickReply()}
+                              placeholder="Nova resposta rápida…"
+                              className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-flame-500"
+                            />
+                            <button
+                              onClick={addQuickReply}
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-flame-500 text-black hover:bg-flame-400"
+                            >
+                              <Plus size={18} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <textarea
                       value={text}
                       onChange={(e) => setText(e.target.value)}
@@ -580,5 +736,27 @@ function MediaBubble({ msg }: { msg: WaMessage }) {
     <a href={url} download className="flex items-center gap-2 px-1 text-sm underline">
       📄 Baixar {msg.caption || "documento"}
     </a>
+  );
+}
+
+function MicRow({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-zinc-200 hover:bg-ink-800"
+    >
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+        {active && <Check size={14} className="text-emerald-400" />}
+      </span>
+      <span className="truncate">{label}</span>
+    </button>
   );
 }
