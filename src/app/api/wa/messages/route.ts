@@ -1,4 +1,4 @@
-import { configFromRequest, evo, extractText } from "@/lib/evolution";
+import { configFromRequest, evo, extractText, mediaInfo } from "@/lib/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -28,12 +28,18 @@ export async function POST(req: Request) {
         : [];
 
   const messages = raw
-    .map((m) => ({
-      id: m.key?.id || `${m.messageTimestamp}-${Math.random()}`,
-      fromMe: Boolean(m.key?.fromMe),
-      text: extractText(m.message),
-      ts: Number(m.messageTimestamp) || 0,
-    }))
+    .map((m) => {
+      const info = mediaInfo(m.message, m.messageType);
+      return {
+        id: m.key?.id || `${m.messageTimestamp}-${Math.random()}`,
+        fromMe: Boolean(m.key?.fromMe),
+        kind: info.kind,
+        mimetype: info.mimetype,
+        caption: info.caption,
+        text: info.kind === "text" ? extractText(m.message) : "",
+        ts: Number(m.messageTimestamp) || 0,
+      };
+    })
     .sort((a, b) => a.ts - b.ts);
 
   return Response.json({ messages });

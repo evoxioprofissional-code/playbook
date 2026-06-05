@@ -16,10 +16,22 @@ import {
   waMessages,
   waSend,
   waSendMedia,
+  waMedia,
   waLogout,
   type WaChat,
   type WaMessage,
 } from "@/lib/wa";
+
+// Cache de mídia já baixada (id da msg -> data URL), evita rebaixar no polling.
+const mediaCache = new Map<string, string>();
+
+const KIND_LABEL: Record<string, string> = {
+  image: "Imagem",
+  video: "Vídeo",
+  audio: "Áudio",
+  document: "Documento",
+  sticker: "Figurinha",
+};
 
 // Lê uma imagem e reduz pra no máx. 1280px (JPEG) — payload leve e confiável.
 function readImageResized(file: File): Promise<{ dataUrl: string; mimetype: string; name: string }> {
@@ -161,7 +173,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   function optimistic(text: string) {
     setMessages((m) => [
       ...m,
-      { id: `tmp-${Date.now()}`, fromMe: true, text, ts: Math.floor(Date.now() / 1000) },
+      { id: `tmp-${Date.now()}`, fromMe: true, kind: "text", text, ts: Math.floor(Date.now() / 1000) },
     ]);
   }
 
@@ -383,15 +395,26 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                       className={`flex ${m.fromMe ? "justify-end" : "justify-start"}`}
                     >
                       <div
-                        className={`max-w-[78%] rounded-2xl px-3 py-2 text-sm ${
+                        className={`max-w-[78%] rounded-2xl px-2 py-2 text-sm ${
                           m.fromMe
                             ? "rounded-br-sm bg-emerald-600/90 text-white"
                             : "rounded-bl-sm bg-ink-800 text-zinc-100"
                         }`}
                       >
-                        <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                        {m.kind === "text" ? (
+                          <p className="whitespace-pre-wrap break-words px-1">{m.text}</p>
+                        ) : (
+                          <>
+                            <MediaBubble msg={m} />
+                            {m.caption && (
+                              <p className="whitespace-pre-wrap break-words px-1 pt-1">
+                                {m.caption}
+                              </p>
+                            )}
+                          </>
+                        )}
                         <p
-                          className={`mt-0.5 text-right text-[10px] ${
+                          className={`mt-0.5 px-1 text-right text-[10px] ${
                             m.fromMe ? "text-emerald-100/70" : "text-zinc-500"
                           }`}
                         >
@@ -495,5 +518,67 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
         </section>
       </div>
     </div>
+  );
+}
+
+function MediaBubble({ msg }: { msg: WaMessage }) {
+  const [url, setUrl] = useState<string | null>(mediaCache.get(msg.id) || null);
+  const [state, setState] = useState<"loading" | "ready" | "error">(
+    mediaCache.get(msg.id) ? "ready" : "loading"
+  );
+
+  useEffect(() => {
+    if (mediaCache.get(msg.id)) return;
+    let alive = true;
+    setState("loading");
+    waMedia(msg.id).then((r) => {
+      if (!alive) return;
+      if (r.base64) {
+        const dataUrl = `data:${r.mimetype || msg.mimetype || "application/octet-stream"};base64,${r.base64}`;
+        mediaCache.set(msg.id, dataUrl);
+        setUrl(dataUrl);
+        setState("ready");
+      } else {
+        setState("error");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [msg.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (state === "loading") {
+    return (
+      <div className="flex h-28 w-44 items-center justify-center rounded-lg bg-black/20 text-xs text-zinc-300">
+        Carregando {KIND_LABEL[msg.kind]?.toLowerCase()}…
+      </div>
+    );
+  }
+  if (state === "error" || !url) {
+    return (
+      <p className="px-1 text-sm opacity-80">
+        {KIND_LABEL[msg.kind] || "Mídia"} (não foi possível carregar)
+      </p>
+    );
+  }
+
+  if (msg.kind === "image" || msg.kind === "sticker") {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt="" className="max-h-72 rounded-lg" />
+      </a>
+    );
+  }
+  if (msg.kind === "video") {
+    return <video src={url} controls className="max-h-72 rounded-lg" />;
+  }
+  if (msg.kind === "audio") {
+    return <audio src={url} controls className="w-56" />;
+  }
+  return (
+    <a href={url} download className="flex items-center gap-2 px-1 text-sm underline">
+      📄 Baixar {msg.caption || "documento"}
+    </a>
   );
 }

@@ -66,7 +66,31 @@ export type WaChat = {
   unread: number;
 };
 
-export type WaMessage = { id: string; fromMe: boolean; text: string; ts: number };
+export type WaMediaKind = "text" | "image" | "video" | "audio" | "document" | "sticker";
+
+export type WaMessage = {
+  id: string;
+  fromMe: boolean;
+  kind: WaMediaKind;
+  text: string;
+  caption?: string;
+  mimetype?: string;
+  ts: number;
+};
+
+export async function waMedia(id: string): Promise<{ base64?: string; mimetype?: string; error?: string }> {
+  try {
+    const r = await fetch("/api/wa/media", {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ id }),
+      cache: "no-store",
+    });
+    return await r.json();
+  } catch {
+    return { error: "Sem conexão" };
+  }
+}
 
 export async function waChats(): Promise<{ chats?: WaChat[]; error?: string }> {
   try {

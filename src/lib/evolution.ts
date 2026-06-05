@@ -62,6 +62,34 @@ export function extractText(message: any): string {
   return "Mensagem";
 }
 
+export type MediaKind = "text" | "image" | "video" | "audio" | "document" | "sticker";
+
+/** Classifica a mensagem e extrai mimetype/legenda quando é mídia. */
+export function mediaInfo(
+  message: any,
+  messageType: string
+): { kind: MediaKind; mimetype: string; caption: string } {
+  const map: Record<string, MediaKind> = {
+    imageMessage: "image",
+    videoMessage: "video",
+    audioMessage: "audio",
+    documentMessage: "document",
+    documentWithCaptionMessage: "document",
+    stickerMessage: "sticker",
+  };
+  const kind = map[messageType];
+  if (!kind) return { kind: "text", mimetype: "", caption: "" };
+  let inner = message?.[messageType] || {};
+  if (messageType === "documentWithCaptionMessage") {
+    inner = message?.documentWithCaptionMessage?.message?.documentMessage || inner;
+  }
+  return {
+    kind,
+    mimetype: inner.mimetype || "",
+    caption: inner.caption || inner.fileName || "",
+  };
+}
+
 /** Número só com dígitos e código do país (assume Brasil 55 se faltar). */
 export function normalizeNumber(n: string): string {
   const d = (n || "").replace(/\D/g, "");
