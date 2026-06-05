@@ -60,7 +60,7 @@ export const PHASES: Phase[] = [
         tasks: [
           { id: "m1-v1", label: "Responder todo lead em menos de 5 minutos", cadence: "daily" },
           { id: "m1-v2", label: "Sem perguntas abertas — usar opções direcionadas", cadence: "daily" },
-          { id: "m1-v3", label: 'Abrir com "Revenda ou Fardamento?"', cadence: "daily" },
+          { id: "m1-v3", label: 'Abrir com opção: "Revenda ou Marca própria?"', cadence: "daily" },
         ],
       },
       {

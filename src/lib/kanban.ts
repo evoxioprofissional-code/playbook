@@ -10,7 +10,7 @@ export type Lead = {
   id: string;
   name: string;
   company: string;
-  type: "Revenda" | "Fardamento";
+  type: "Revenda" | "Marca própria";
   qty: number;
   value: number;
   column: ColumnId;
@@ -44,16 +44,16 @@ const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
 
 export const SEED_LEADS: Lead[] = [
   { id: "l1", name: "Rafael Dantas", company: "RD Streetwear", type: "Revenda", qty: 250, value: 6250, column: "novo", createdAt: ago(2) },
-  { id: "l2", name: "Time Açaí do Norte", company: "Açaí do Norte", type: "Fardamento", qty: 80, value: 2080, column: "novo", createdAt: ago(9) },
+  { id: "l2", name: "Time Açaí do Norte", company: "Açaí do Norte", type: "Marca própria", qty: 80, value: 2080, column: "novo", createdAt: ago(9) },
   { id: "l3", name: "Marina Costa", company: "Brava Caps", type: "Revenda", qty: 500, value: 13500, column: "qualificacao", hot: true, createdAt: ago(95) },
-  { id: "l4", name: "Barbearia Navalha", company: "Navalha de Ouro", type: "Fardamento", qty: 40, value: 1080, column: "qualificacao", createdAt: ago(140) },
+  { id: "l4", name: "Barbearia Navalha", company: "Navalha de Ouro", type: "Marca própria", qty: 40, value: 1080, column: "qualificacao", createdAt: ago(140) },
   { id: "l5", name: "Lucas Pereira", company: "LP Apparel", type: "Revenda", qty: 300, value: 7800, column: "apresentacao", hot: true, createdAt: ago(320) },
-  { id: "l6", name: "Clínica Vida", company: "Vida Saúde", type: "Fardamento", qty: 120, value: 3120, column: "apresentacao", createdAt: ago(400) },
+  { id: "l6", name: "Clínica Vida", company: "Vida Saúde", type: "Marca própria", qty: 120, value: 3120, column: "apresentacao", createdAt: ago(400) },
   { id: "l7", name: "Pedro Henrique", company: "PH Caps Co.", type: "Revenda", qty: 200, value: 5200, column: "follow24", createdAt: ago(1500) },
-  { id: "l8", name: "Conveniência 24h", company: "Posto Seridó", type: "Fardamento", qty: 60, value: 1560, column: "follow48", createdAt: ago(3100) },
-  { id: "l9", name: "Studio Ink", company: "Studio Ink Tattoo", type: "Fardamento", qty: 35, value: 945, column: "follow48", createdAt: ago(4300) },
+  { id: "l8", name: "Conveniência 24h", company: "Posto Seridó", type: "Marca própria", qty: 60, value: 1560, column: "follow48", createdAt: ago(3100) },
+  { id: "l9", name: "Studio Ink", company: "Studio Ink Tattoo", type: "Marca própria", qty: 35, value: 945, column: "follow48", createdAt: ago(4300) },
   { id: "l10", name: "Camila Rocha", company: "CR Brand", type: "Revenda", qty: 1000, value: 27000, column: "ganho", hot: true, createdAt: ago(5000) },
-  { id: "l11", name: "Equipe Corrida", company: "Run Caicó", type: "Fardamento", qty: 150, value: 3900, column: "ganho", createdAt: ago(6000) },
+  { id: "l11", name: "Equipe Corrida", company: "Run Caicó", type: "Marca própria", qty: 150, value: 3900, column: "ganho", createdAt: ago(6000) },
 ];
 
 export const formatBRL = (v: number) =>

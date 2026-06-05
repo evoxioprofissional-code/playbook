@@ -49,7 +49,7 @@ create table if not exists leads (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
   company     text,
-  type        text check (type in ('Revenda', 'Fardamento')) default 'Revenda',
+  type        text check (type in ('Revenda', 'Marca própria')) default 'Revenda',
   qty         integer not null default 100,
   value       numeric not null default 0,
   column_id   text not null default 'novo',

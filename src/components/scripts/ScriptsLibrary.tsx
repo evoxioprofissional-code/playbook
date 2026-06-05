@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Copy, Check, Phone, MessageCircle, ArrowRight, X } from "lucide-react";
 import {
   SCRIPTS,
   QUESTION_SWAPS,
   CATEGORY_LABEL,
+  SCRIPT_FIELDS,
   type ScriptCategory,
 } from "@/lib/scripts";
 
@@ -22,6 +23,8 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "upsell", label: CATEGORY_LABEL.upsell },
   { id: "recuperacao", label: CATEGORY_LABEL.recuperacao },
 ];
+
+const LS_FIELDS = "j2a_script_fields";
 
 function useCopy() {
   const [copied, setCopied] = useState<string | null>(null);
@@ -44,18 +47,63 @@ function useCopy() {
 
 export default function ScriptsLibrary() {
   const [filter, setFilter] = useState<Filter>("todos");
+  const [values, setValues] = useState<Record<string, string>>({});
   const { copied, copy } = useCopy();
 
-  const scripts = useMemo(
-    () =>
-      filter === "todos" || filter === "direcionadas"
-        ? SCRIPTS
-        : SCRIPTS.filter((s) => s.category === filter),
-    [filter]
+  // Carrega/salva os campos preenchidos.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_FIELDS);
+      if (raw) setValues(JSON.parse(raw));
+    } catch {
+      /* ignora */
+    }
+  }, []);
+  useEffect(() => {
+    localStorage.setItem(LS_FIELDS, JSON.stringify(values));
+  }, [values]);
+
+  const fill = useMemo(
+    () => (body: string) =>
+      body.replace(/\{(\w+)\}/g, (_, t) => {
+        const f = SCRIPT_FIELDS.find((x) => x.token === t);
+        const v = values[t]?.trim();
+        return v || (f ? `[${f.label.toLowerCase()}]` : `{${t}}`);
+      }),
+    [values]
   );
+
+  const scripts =
+    filter === "todos" || filter === "direcionadas"
+      ? SCRIPTS
+      : SCRIPTS.filter((s) => s.category === filter);
 
   return (
     <div className="px-6 py-6 sm:px-8">
+      {/* Preenchimento — escreve uma vez, todos os scripts saem prontos */}
+      <div className="mb-5 rounded-2xl border border-ink-700 bg-ink-900/80 p-4">
+        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-flame-400">
+          Preencha uma vez · os scripts saem prontos pra copiar
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {SCRIPT_FIELDS.map((f) => (
+            <label key={f.token} className="block">
+              <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                {f.label}
+              </span>
+              <input
+                value={values[f.token] || ""}
+                onChange={(e) =>
+                  setValues((v) => ({ ...v, [f.token]: e.target.value }))
+                }
+                placeholder={f.placeholder}
+                className="w-full rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-flame-500"
+              />
+            </label>
+          ))}
+        </div>
+      </div>
+
       {/* Filtros */}
       <div className="mb-5 flex flex-wrap gap-2">
         {FILTERS.map((f) => (
@@ -80,20 +128,16 @@ export default function ScriptsLibrary() {
           {scripts.map((s) => {
             const isCopied = copied === s.id;
             const Icon = s.channel === "ligacao" ? Phone : MessageCircle;
+            const text = fill(s.body);
             return (
               <article
                 key={s.id}
                 className="flex animate-fade-in flex-col rounded-2xl border border-ink-700 bg-ink-900/80 p-5 transition hover:border-flame-500/40"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-md bg-flame-500/15 px-2 py-0.5 text-[11px] font-bold text-flame-400">
-                      {CATEGORY_LABEL[s.category]}
-                    </span>
-                    <span className="rounded-md bg-ink-800 px-2 py-0.5 text-[11px] font-semibold text-zinc-400">
-                      {s.tag}
-                    </span>
-                  </div>
+                  <span className="rounded-md bg-flame-500/15 px-2 py-0.5 text-[11px] font-bold text-flame-400">
+                    {CATEGORY_LABEL[s.category]}
+                  </span>
                   <span
                     className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
                       s.channel === "ligacao"
@@ -111,11 +155,11 @@ export default function ScriptsLibrary() {
                 </h2>
 
                 <p className="mt-2 flex-1 rounded-xl border border-ink-700 bg-ink-950 p-4 text-sm leading-relaxed text-zinc-300">
-                  {s.body}
+                  {text}
                 </p>
 
                 <button
-                  onClick={() => copy(s.id, s.body)}
+                  onClick={() => copy(s.id, text)}
                   className={`mt-4 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
                     isCopied
                       ? "bg-emerald-500 text-black"
@@ -128,7 +172,7 @@ export default function ScriptsLibrary() {
                     </>
                   ) : (
                     <>
-                      <Copy size={16} strokeWidth={2.4} /> Copiar script
+                      <Copy size={16} strokeWidth={2.4} /> Copiar pronto
                     </>
                   )}
                 </button>
@@ -151,9 +195,9 @@ function SwapsView({
   return (
     <div>
       <p className="mb-4 max-w-2xl text-sm text-zinc-400">
-        Pergunta aberta trava a conversa e dá trabalho pro lead pensar. Troque
-        pela versão <span className="font-semibold text-white">direcionada</span>:
-        ela dá opções e empurra pra frente. Copie a versão certa.
+        Pergunta aberta trava a conversa. Troque pela versão{" "}
+        <span className="font-semibold text-white">direcionada</span>: ela dá
+        opções e empurra pra frente.
       </p>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {QUESTION_SWAPS.map((q, i) => {
@@ -176,8 +220,8 @@ function SwapsView({
                 <span className="h-px flex-1 bg-ink-700" />
               </div>
 
-              <div className="flex items-start gap-2 text-emerald-300">
-                <Check size={16} strokeWidth={2.6} className="mt-0.5 shrink-0" />
+              <div className="flex items-start gap-2">
+                <Check size={16} strokeWidth={2.6} className="mt-0.5 shrink-0 text-emerald-400" />
                 <p className="text-sm font-semibold text-white">{q.directed}</p>
               </div>
 

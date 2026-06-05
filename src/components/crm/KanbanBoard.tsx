@@ -391,7 +391,7 @@ function NewLeadModal({
               className="input"
             >
               <option>Revenda</option>
-              <option>Fardamento</option>
+              <option>Marca própria</option>
             </select>
           </Field>
           <Field label="Quantidade (pç)">
