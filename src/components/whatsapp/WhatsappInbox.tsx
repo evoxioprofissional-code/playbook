@@ -1,15 +1,68 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Send, Search, Power, ArrowLeft, MessageSquare } from "lucide-react";
+import {
+  Send,
+  Search,
+  Power,
+  ArrowLeft,
+  MessageSquare,
+  ImageIcon,
+  Mic,
+  X,
+} from "lucide-react";
 import {
   waChats,
   waMessages,
   waSend,
+  waSendMedia,
   waLogout,
   type WaChat,
   type WaMessage,
 } from "@/lib/wa";
+
+// Lê uma imagem e reduz pra no máx. 1280px (JPEG) — payload leve e confiável.
+function readImageResized(file: File): Promise<{ dataUrl: string; mimetype: string; name: string }> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const max = 1280;
+        let { width, height } = img;
+        if (width > max || height > max) {
+          const scale = Math.min(max / width, max / height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("canvas"));
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve({
+          dataUrl: canvas.toDataURL("image/jpeg", 0.82),
+          mimetype: "image/jpeg",
+          name: file.name.replace(/\.\w+$/, "") + ".jpg",
+        });
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = reject;
+    r.onload = () => resolve(r.result as string);
+    r.readAsDataURL(blob);
+  });
+}
 
 function initials(name: string | null, number: string) {
   const base = (name || number).trim();
@@ -44,7 +97,15 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [sending, setSending] = useState(false);
   const [q, setQ] = useState("");
+  const [attach, setAttach] = useState<{ dataUrl: string; mimetype: string; name: string } | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const cancelRef = useRef(false);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Lista de conversas + atualização automática.
   useEffect(() => {
@@ -91,19 +152,100 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, active?.jid]);
 
-  async function send() {
-    if (!active || !text.trim() || sending) return;
-    const t = text.trim();
-    setText("");
-    setSending(true);
-    setMessages((m) => [
-      ...m,
-      { id: `tmp-${Date.now()}`, fromMe: true, text: t, ts: Math.floor(Date.now() / 1000) },
-    ]);
-    await waSend(active.number, t);
-    setSending(false);
+  async function reload() {
+    if (!active) return;
     const r = await waMessages(active.jid);
     if (r.messages) setMessages(r.messages);
+  }
+
+  function optimistic(text: string) {
+    setMessages((m) => [
+      ...m,
+      { id: `tmp-${Date.now()}`, fromMe: true, text, ts: Math.floor(Date.now() / 1000) },
+    ]);
+  }
+
+  async function send() {
+    if (!active || sending) return;
+    const t = text.trim();
+
+    // Com imagem anexada: envia a imagem (legenda = texto).
+    if (attach) {
+      setSending(true);
+      optimistic(t ? `📷 ${t}` : "📷 Imagem");
+      setText("");
+      const a = attach;
+      setAttach(null);
+      await waSendMedia({
+        number: active.number,
+        kind: "image",
+        mediatype: "image",
+        mimetype: a.mimetype,
+        media: a.dataUrl,
+        fileName: a.name,
+        caption: t,
+      });
+      setSending(false);
+      reload();
+      return;
+    }
+
+    if (!t) return;
+    setSending(true);
+    optimistic(t);
+    setText("");
+    await waSend(active.number, t);
+    setSending(false);
+    reload();
+  }
+
+  async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const img = await readImageResized(file);
+      setAttach(img);
+    } catch {
+      /* ignora arquivo inválido */
+    }
+  }
+
+  async function startRec() {
+    if (!active) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      cancelRef.current = false;
+      mr.ondataavailable = (ev) => ev.data.size && chunksRef.current.push(ev.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (recTimerRef.current) clearInterval(recTimerRef.current);
+        setRecording(false);
+        setRecSecs(0);
+        if (cancelRef.current) return;
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        const b64 = await blobToBase64(blob);
+        setSending(true);
+        optimistic("🎤 Áudio");
+        await waSendMedia({ number: active.number, kind: "audio", media: b64 });
+        setSending(false);
+        reload();
+      };
+      mr.start();
+      recRef.current = mr;
+      setRecording(true);
+      setRecSecs(0);
+      recTimerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    } catch {
+      alert("Não consegui acessar o microfone. Permita o acesso no navegador.");
+    }
+  }
+
+  function stopRec(cancel: boolean) {
+    cancelRef.current = cancel;
+    recRef.current?.stop();
   }
 
   async function disconnect() {
@@ -263,27 +405,90 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
               </div>
 
               {/* Composer */}
-              <div className="flex items-end gap-2 border-t border-ink-700 p-3">
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      send();
-                    }
-                  }}
-                  rows={1}
-                  placeholder="Escreva uma mensagem…"
-                  className="max-h-32 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+              <div className="border-t border-ink-700 p-3">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onPickImage}
                 />
-                <button
-                  onClick={send}
-                  disabled={!text.trim() || sending}
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-black transition hover:bg-emerald-400 disabled:opacity-40"
-                >
-                  <Send size={17} />
-                </button>
+
+                {attach && (
+                  <div className="mb-2 flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 p-2">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={attach.dataUrl} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                    <span className="flex-1 text-xs text-zinc-400">
+                      Imagem pronta — escreva uma legenda (opcional) e envie.
+                    </span>
+                    <button
+                      onClick={() => setAttach(null)}
+                      className="rounded-lg p-1 text-zinc-400 hover:text-white"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {recording ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2.5">
+                    <span className="flex items-center gap-2 text-sm font-bold text-rose-300">
+                      <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-rose-500" />
+                      Gravando {Math.floor(recSecs / 60)}:{String(recSecs % 60).padStart(2, "0")}
+                    </span>
+                    <span className="flex-1" />
+                    <button
+                      onClick={() => stopRec(true)}
+                      className="rounded-lg px-3 py-1.5 text-xs font-bold text-zinc-300 hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={() => stopRec(false)}
+                      title="Enviar áudio"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500 text-black hover:bg-emerald-400"
+                    >
+                      <Send size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-end gap-2">
+                    <button
+                      onClick={() => fileRef.current?.click()}
+                      title="Enviar imagem"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-800 text-zinc-300 ring-1 ring-ink-700 hover:text-flame-400"
+                    >
+                      <ImageIcon size={18} />
+                    </button>
+                    <button
+                      onClick={startRec}
+                      title="Gravar áudio"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ink-800 text-zinc-300 ring-1 ring-ink-700 hover:text-emerald-400"
+                    >
+                      <Mic size={18} />
+                    </button>
+                    <textarea
+                      value={text}
+                      onChange={(e) => setText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                      rows={1}
+                      placeholder={attach ? "Legenda (opcional)…" : "Escreva uma mensagem…"}
+                      className="max-h-32 flex-1 resize-none rounded-xl border border-ink-700 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+                    />
+                    <button
+                      onClick={send}
+                      disabled={(!text.trim() && !attach) || sending}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500 text-black transition hover:bg-emerald-400 disabled:opacity-40"
+                    >
+                      <Send size={17} />
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

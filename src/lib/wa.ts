@@ -91,6 +91,29 @@ export async function waMessages(jid: string): Promise<{ messages?: WaMessage[];
   }
 }
 
+export type WaMediaPayload = {
+  number: string;
+  kind: "image" | "audio" | "document" | "video";
+  media: string; // base64 (com ou sem prefixo data:)
+  mediatype?: string;
+  mimetype?: string;
+  fileName?: string;
+  caption?: string;
+};
+
+export async function waSendMedia(p: WaMediaPayload): Promise<{ ok?: boolean; error?: string }> {
+  try {
+    const r = await fetch("/api/wa/sendmedia", {
+      method: "POST",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify(p),
+    });
+    return await r.json();
+  } catch {
+    return { error: "Sem conexão" };
+  }
+}
+
 export async function waLogout(): Promise<{ ok?: boolean }> {
   const r = await fetch("/api/wa/logout", { method: "POST", headers: headers() });
   return r.json();
