@@ -9,6 +9,7 @@ import {
   MessageSquareText,
   Clapperboard,
   Users,
+  Smartphone,
   Menu,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const NAV = [
   { href: "/equipe", label: "Equipe", sub: "Acompanhamento", icon: Users },
   { href: "/crm", label: "CRM Kanban", sub: "Gestão de leads", icon: KanbanSquare },
   { href: "/scripts", label: "Scripts", sub: "Biblioteca", icon: MessageSquareText },
+  { href: "/whatsapp", label: "WhatsApp", sub: "Conexão", icon: Smartphone },
   { href: "/criativos", label: "Criativos", sub: "Social media", icon: Clapperboard },
 ];
 

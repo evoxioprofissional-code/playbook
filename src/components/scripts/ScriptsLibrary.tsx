@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Check, Phone, MessageCircle, ArrowRight, X } from "lucide-react";
+import { Copy, Check, Phone, MessageCircle, ArrowRight, X, Send } from "lucide-react";
 import {
   SCRIPTS,
   QUESTION_SWAPS,
@@ -9,6 +9,7 @@ import {
   SCRIPT_FIELDS,
   type ScriptCategory,
 } from "@/lib/scripts";
+import { waLink, waSend, waStatus } from "@/lib/wa";
 
 type Filter = "todos" | "direcionadas" | ScriptCategory;
 
@@ -26,31 +27,14 @@ const FILTERS: { id: Filter; label: string }[] = [
 
 const LS_FIELDS = "j2a_script_fields";
 
-function useCopy() {
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = async (id: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(id);
-    setTimeout(() => setCopied((c) => (c === id ? null : c)), 1600);
-  };
-  return { copied, copy };
-}
-
 export default function ScriptsLibrary() {
   const [filter, setFilter] = useState<Filter>("todos");
   const [values, setValues] = useState<Record<string, string>>({});
-  const { copied, copy } = useCopy();
+  const [copied, setCopied] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
 
-  // Carrega/salva os campos preenchidos.
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_FIELDS);
@@ -58,6 +42,7 @@ export default function ScriptsLibrary() {
     } catch {
       /* ignora */
     }
+    waStatus().then((r) => setConnected(r.state === "open"));
   }, []);
   useEffect(() => {
     localStorage.setItem(LS_FIELDS, JSON.stringify(values));
@@ -73,19 +58,77 @@ export default function ScriptsLibrary() {
     [values]
   );
 
+  const phone = values.telefone;
+  const set = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
+
+  async function copy(id: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+    setCopied(id);
+    setTimeout(() => setCopied((c) => (c === id ? null : c)), 1600);
+  }
+
+  // Envia pelo número conectado; se não houver conexão, abre o link wa.me.
+  async function whats(id: string, text: string) {
+    if (connected && phone?.trim()) {
+      setBusy(id);
+      const r = await waSend(phone, text);
+      setBusy(null);
+      if (r.ok) {
+        setSent(id);
+        setTimeout(() => setSent((s) => (s === id ? null : s)), 1900);
+        return;
+      }
+    }
+    window.open(waLink(phone, text), "_blank", "noopener");
+  }
+
   const scripts =
     filter === "todos" || filter === "direcionadas"
       ? SCRIPTS
       : SCRIPTS.filter((s) => s.category === filter);
 
+  const waState = { connected, busy, sent };
+
   return (
     <div className="px-6 py-6 sm:px-8">
-      {/* Preenchimento — escreve uma vez, todos os scripts saem prontos */}
+      {/* Preenchimento */}
       <div className="mb-5 rounded-2xl border border-ink-700 bg-ink-900/80 p-4">
-        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-flame-400">
-          Preencha uma vez · os scripts saem prontos pra copiar
-        </p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-flame-400">
+            Preencha uma vez · scripts prontos pra copiar ou enviar
+          </p>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+              connected
+                ? "bg-emerald-500/15 text-emerald-300"
+                : "bg-ink-800 text-zinc-500"
+            }`}
+          >
+            {connected ? "WhatsApp conectado" : "WhatsApp via link"}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          <label className="block">
+            <span className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
+              <Send size={10} /> WhatsApp do cliente
+            </span>
+            <input
+              value={values.telefone || ""}
+              onChange={(e) => set("telefone", e.target.value)}
+              placeholder="(84) 99999-9999"
+              inputMode="tel"
+              className="w-full rounded-lg border border-emerald-500/30 bg-ink-950 px-2.5 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+            />
+          </label>
           {SCRIPT_FIELDS.map((f) => (
             <label key={f.token} className="block">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
@@ -93,15 +136,18 @@ export default function ScriptsLibrary() {
               </span>
               <input
                 value={values[f.token] || ""}
-                onChange={(e) =>
-                  setValues((v) => ({ ...v, [f.token]: e.target.value }))
-                }
+                onChange={(e) => set(f.token, e.target.value)}
                 placeholder={f.placeholder}
                 className="w-full rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-flame-500"
               />
             </label>
           ))}
         </div>
+        <p className="mt-2 text-[11px] text-zinc-500">
+          {connected
+            ? "Conectado: o botão envia a mensagem direto pro número do cliente."
+            : "Conecte em WhatsApp (menu) pra enviar direto. Sem conexão, o botão abre o WhatsApp com a mensagem pronta."}
+        </p>
       </div>
 
       {/* Filtros */}
@@ -122,11 +168,10 @@ export default function ScriptsLibrary() {
       </div>
 
       {filter === "direcionadas" ? (
-        <SwapsView copied={copied} copy={copy} />
+        <SwapsView copied={copied} copy={copy} whats={whats} wa={waState} />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
           {scripts.map((s) => {
-            const isCopied = copied === s.id;
             const Icon = s.channel === "ligacao" ? Phone : MessageCircle;
             const text = fill(s.body);
             return (
@@ -158,24 +203,27 @@ export default function ScriptsLibrary() {
                   {text}
                 </p>
 
-                <button
-                  onClick={() => copy(s.id, text)}
-                  className={`mt-4 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
-                    isCopied
-                      ? "bg-emerald-500 text-black"
-                      : "bg-flame-500 text-black hover:bg-flame-400"
-                  }`}
-                >
-                  {isCopied ? (
-                    <>
-                      <Check size={16} strokeWidth={2.8} /> Copiado
-                    </>
-                  ) : (
-                    <>
-                      <Copy size={16} strokeWidth={2.4} /> Copiar pronto
-                    </>
-                  )}
-                </button>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => copy(s.id, text)}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold transition ${
+                      copied === s.id
+                        ? "bg-emerald-500 text-black"
+                        : "bg-ink-800 text-zinc-200 ring-1 ring-ink-700 hover:text-white"
+                    }`}
+                  >
+                    {copied === s.id ? (
+                      <>
+                        <Check size={15} strokeWidth={2.8} /> Copiado
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={15} strokeWidth={2.2} /> Copiar
+                      </>
+                    )}
+                  </button>
+                  <WhatsButton id={s.id} text={text} whats={whats} wa={waState} />
+                </div>
               </article>
             );
           })}
@@ -185,12 +233,54 @@ export default function ScriptsLibrary() {
   );
 }
 
+type WaState = { connected: boolean; busy: string | null; sent: string | null };
+
+function WhatsButton({
+  id,
+  text,
+  whats,
+  wa,
+}: {
+  id: string;
+  text: string;
+  whats: (id: string, text: string) => void;
+  wa: WaState;
+}) {
+  const isBusy = wa.busy === id;
+  const isSent = wa.sent === id;
+  return (
+    <button
+      onClick={() => whats(id, text)}
+      disabled={isBusy}
+      className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold transition ${
+        isSent ? "bg-emerald-400 text-black" : "bg-emerald-500 text-black hover:bg-emerald-400"
+      }`}
+    >
+      {isSent ? (
+        <>
+          <Check size={15} strokeWidth={2.8} /> Enviado
+        </>
+      ) : isBusy ? (
+        "Enviando..."
+      ) : (
+        <>
+          <Send size={15} strokeWidth={2.4} /> {wa.connected ? "Enviar" : "WhatsApp"}
+        </>
+      )}
+    </button>
+  );
+}
+
 function SwapsView({
   copied,
   copy,
+  whats,
+  wa,
 }: {
   copied: string | null;
   copy: (id: string, text: string) => void;
+  whats: (id: string, text: string) => void;
+  wa: WaState;
 }) {
   return (
     <div>
@@ -202,7 +292,6 @@ function SwapsView({
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {QUESTION_SWAPS.map((q, i) => {
           const id = `swap-${i}`;
-          const isCopied = copied === id;
           return (
             <article
               key={id}
@@ -225,24 +314,27 @@ function SwapsView({
                 <p className="text-sm font-semibold text-white">{q.directed}</p>
               </div>
 
-              <button
-                onClick={() => copy(id, q.directed)}
-                className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2 text-sm font-bold transition ${
-                  isCopied
-                    ? "bg-emerald-500 text-black"
-                    : "bg-flame-500 text-black hover:bg-flame-400"
-                }`}
-              >
-                {isCopied ? (
-                  <>
-                    <Check size={15} strokeWidth={2.8} /> Copiado
-                  </>
-                ) : (
-                  <>
-                    <Copy size={15} strokeWidth={2.4} /> Copiar a direcionada
-                  </>
-                )}
-              </button>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => copy(id, q.directed)}
+                  className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-bold transition ${
+                    copied === id
+                      ? "bg-emerald-500 text-black"
+                      : "bg-ink-800 text-zinc-200 ring-1 ring-ink-700 hover:text-white"
+                  }`}
+                >
+                  {copied === id ? (
+                    <>
+                      <Check size={14} strokeWidth={2.8} /> Copiado
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={14} strokeWidth={2.2} /> Copiar
+                    </>
+                  )}
+                </button>
+                <WhatsButton id={id} text={q.directed} whats={whats} wa={wa} />
+              </div>
             </article>
           );
         })}
