@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Check, Phone, MessageCircle, ArrowRight, X, Send } from "lucide-react";
+import { Copy, Check, Phone, MessageCircle, ArrowRight, X, Send, Pencil, Plus } from "lucide-react";
 import {
-  SCRIPTS,
   QUESTION_SWAPS,
   CATEGORY_LABEL,
   SCRIPT_FIELDS,
   type ScriptCategory,
 } from "@/lib/scripts";
 import { waLink, waSend, waStatus } from "@/lib/wa";
+import { useScripts } from "@/components/scripts/useScripts";
+import ScriptEditor from "@/components/scripts/ScriptEditor";
+import type { SavedScript } from "@/lib/scriptsStore";
 
 type Filter = "todos" | "direcionadas" | ScriptCategory;
 
@@ -34,6 +36,9 @@ export default function ScriptsLibrary() {
   const [busy, setBusy] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const { scripts: allScripts, save, remove } = useScripts();
+  const [editing, setEditing] = useState<SavedScript | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -93,8 +98,8 @@ export default function ScriptsLibrary() {
 
   const scripts =
     filter === "todos" || filter === "direcionadas"
-      ? SCRIPTS
-      : SCRIPTS.filter((s) => s.category === filter);
+      ? allScripts
+      : allScripts.filter((s) => s.category === filter);
 
   const waState = { connected, busy, sent };
 
@@ -151,7 +156,7 @@ export default function ScriptsLibrary() {
       </div>
 
       {/* Filtros */}
-      <div className="mb-5 flex flex-wrap gap-2">
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -165,6 +170,17 @@ export default function ScriptsLibrary() {
             {f.label}
           </button>
         ))}
+        {filter !== "direcionadas" && (
+          <button
+            onClick={() => {
+              setEditing(null);
+              setEditorOpen(true);
+            }}
+            className="ml-auto flex items-center gap-1 rounded-xl bg-flame-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-flame-400"
+          >
+            <Plus size={14} /> Novo script
+          </button>
+        )}
       </div>
 
       {filter === "direcionadas" ? (
@@ -183,16 +199,28 @@ export default function ScriptsLibrary() {
                   <span className="rounded-md bg-flame-500/15 px-2 py-0.5 text-[11px] font-bold text-flame-400">
                     {CATEGORY_LABEL[s.category]}
                   </span>
-                  <span
-                    className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
-                      s.channel === "ligacao"
-                        ? "bg-violet-500/15 text-violet-300"
-                        : "bg-emerald-500/15 text-emerald-300"
-                    }`}
-                  >
-                    <Icon size={11} />
-                    {s.channel === "ligacao" ? "Ligação" : "WhatsApp"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                        s.channel === "ligacao"
+                          ? "bg-violet-500/15 text-violet-300"
+                          : "bg-emerald-500/15 text-emerald-300"
+                      }`}
+                    >
+                      <Icon size={11} />
+                      {s.channel === "ligacao" ? "Ligação" : "WhatsApp"}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setEditing(s);
+                        setEditorOpen(true);
+                      }}
+                      title="Editar script"
+                      className="rounded-md p-1 text-zinc-500 hover:text-flame-400"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 <h2 className="mt-3 text-base font-extrabold leading-snug text-white">
@@ -229,6 +257,17 @@ export default function ScriptsLibrary() {
           })}
         </div>
       )}
+
+      <ScriptEditor
+        open={editorOpen}
+        initial={editing}
+        onClose={() => setEditorOpen(false)}
+        onSave={(s) => {
+          save(s);
+          setEditorOpen(false);
+        }}
+        onDelete={(id) => remove(id)}
+      />
     </div>
   );
 }

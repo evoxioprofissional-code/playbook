@@ -14,8 +14,10 @@ import {
   Plus,
   Trash2,
   Check,
+  FileText,
   X,
 } from "lucide-react";
+import ScriptsDrawer from "./ScriptsDrawer";
 import {
   waChats,
   waMessages,
@@ -119,6 +121,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const [recSecs, setRecSecs] = useState(0);
   const [quickOpen, setQuickOpen] = useState(false);
   const [micOpen, setMicOpen] = useState(false);
+  const [scriptsOpen, setScriptsOpen] = useState(false);
   const [quickReplies, setQuickReplies] = useState<string[]>([]);
   const [newReply, setNewReply] = useState("");
   const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
@@ -258,6 +261,20 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     await waSend(active.number, t);
     setSending(false);
     reload();
+  }
+
+  // Envia um texto direto (usado pelos scripts).
+  async function sendRaw(t: string) {
+    if (!active || !t.trim() || sending) return;
+    setSending(true);
+    optimistic(t);
+    await waSend(active.number, t);
+    setSending(false);
+    reload();
+  }
+
+  function insertText(t: string) {
+    setText((prev) => (prev.trim() ? `${prev}\n${t}` : t));
   }
 
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
@@ -410,7 +427,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
         </aside>
 
         {/* Conversa */}
-        <section className={`${active ? "flex" : "hidden md:flex"} flex-1 flex-col bg-ink-950/40`}>
+        <section className={`${active ? "flex" : "hidden md:flex"} relative flex-1 flex-col bg-ink-950/40`}>
           {!active ? (
             <div className="flex flex-1 flex-col items-center justify-center text-zinc-600">
               <MessageSquare size={40} />
@@ -646,6 +663,17 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                       )}
                     </div>
 
+                    <button
+                      onClick={() => {
+                        setScriptsOpen(true);
+                        setQuickOpen(false);
+                        setMicOpen(false);
+                      }}
+                      title="Scripts"
+                      className="flex h-10 shrink-0 items-center gap-1.5 rounded-xl bg-flame-500/15 px-3 text-sm font-bold text-flame-400 ring-1 ring-flame-500/40 hover:bg-flame-500/25"
+                    >
+                      <FileText size={16} /> Scripts
+                    </button>
                     <textarea
                       value={text}
                       onChange={(e) => setText(e.target.value)}
@@ -669,6 +697,14 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                   </div>
                 )}
               </div>
+
+              <ScriptsDrawer
+                open={scriptsOpen}
+                onClose={() => setScriptsOpen(false)}
+                contactName={active.name || `+${active.number}`}
+                onInsert={insertText}
+                onSend={sendRaw}
+              />
             </>
           )}
         </section>
