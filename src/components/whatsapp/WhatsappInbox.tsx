@@ -83,6 +83,12 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function chatLabel(c: { name: string | null; number: string; jid: string }) {
+  if (c.name) return c.name;
+  if (c.jid.endsWith("@lid")) return `Contato ${c.number.slice(-4)}`;
+  return `+${c.number}`;
+}
+
 function initials(name: string | null, number: string) {
   const base = (name || number).trim();
   const parts = base.split(/\s+/).filter(Boolean);
@@ -241,7 +247,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
       const a = attach;
       setAttach(null);
       await waSendMedia({
-        number: active.number,
+        number: active.jid,
         kind: "image",
         mediatype: "image",
         mimetype: a.mimetype,
@@ -258,7 +264,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     setSending(true);
     optimistic(t);
     setText("");
-    await waSend(active.number, t);
+    await waSend(active.jid, t);
     setSending(false);
     reload();
   }
@@ -268,7 +274,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     if (!active || !t.trim() || sending) return;
     setSending(true);
     optimistic(t);
-    await waSend(active.number, t);
+    await waSend(active.jid, t);
     setSending(false);
     reload();
   }
@@ -401,7 +407,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-bold text-white">
-                          {c.name || `+${c.number}`}
+                          {chatLabel(c)}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}
@@ -448,9 +454,11 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                 </span>
                 <div className="leading-tight">
                   <p className="text-sm font-bold text-white">
-                    {active.name || `+${active.number}`}
+                    {chatLabel(active)}
                   </p>
-                  <p className="text-[11px] text-zinc-500">+{active.number}</p>
+                  {!active.jid.endsWith("@lid") && (
+                    <p className="text-[11px] text-zinc-500">+{active.number}</p>
+                  )}
                 </div>
               </div>
 
@@ -701,7 +709,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
               <ScriptsDrawer
                 open={scriptsOpen}
                 onClose={() => setScriptsOpen(false)}
-                contactName={active.name || `+${active.number}`}
+                contactName={chatLabel(active)}
                 onInsert={insertText}
                 onSend={sendRaw}
               />

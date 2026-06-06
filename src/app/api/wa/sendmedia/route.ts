@@ -1,4 +1,4 @@
-import { configFromRequest, evo, normalizeNumber } from "@/lib/evolution";
+import { configFromRequest, evo, resolveRecipient } from "@/lib/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   if (!cfg) return Response.json({ error: "WhatsApp não configurado." }, { status: 400 });
 
   const body = await req.json().catch(() => ({}));
-  const number = normalizeNumber(body.number || "");
+  const number = resolveRecipient(body.number || "");
   const media = rawBase64(body.media || "");
   if (!number) return Response.json({ error: "Número vazio." }, { status: 400 });
   if (!media) return Response.json({ error: "Arquivo vazio." }, { status: 400 });

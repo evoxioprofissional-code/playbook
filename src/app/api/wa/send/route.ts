@@ -1,4 +1,4 @@
-import { configFromRequest, evo, normalizeNumber } from "@/lib/evolution";
+import { configFromRequest, evo, resolveRecipient } from "@/lib/evolution";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const number = normalizeNumber(body.number || "");
+  const number = resolveRecipient(body.number || "");
   const text = (body.text || "").toString();
 
   if (!number) return Response.json({ error: "Número do cliente vazio." }, { status: 400 });

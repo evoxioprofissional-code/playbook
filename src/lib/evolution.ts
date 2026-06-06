@@ -97,3 +97,16 @@ export function normalizeNumber(n: string): string {
   if (d.startsWith("55")) return d;
   return d.length <= 11 ? `55${d}` : d;
 }
+
+/**
+ * Resolve o destinatário aceito pelo Evolution:
+ * - jid @lid (ID de privacidade) → enviado como está
+ * - @s.whatsapp.net → só os dígitos
+ * - dígitos puros → normalizados (com 55)
+ */
+export function resolveRecipient(input: string): string {
+  const v = (input || "").trim();
+  if (v.endsWith("@lid")) return v;
+  if (v.includes("@")) return normalizeNumber(v.split("@")[0]);
+  return normalizeNumber(v);
+}
