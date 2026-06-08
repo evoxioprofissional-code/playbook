@@ -9,6 +9,7 @@ import {
   MessageSquare,
   ImageIcon,
   Mic,
+  Radar,
   ChevronDown,
   Zap,
   Plus,
@@ -122,6 +123,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [sending, setSending] = useState(false);
   const [q, setQ] = useState("");
+  const [view, setView] = useState<"chats" | "radar">("chats");
   const [attach, setAttach] = useState<{ dataUrl: string; mimetype: string; name: string } | null>(null);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
@@ -362,22 +364,83 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     );
   }, [chats, q]);
 
+  // Radar: separa quem precisa de ação pela última mensagem (quem falou + há quanto tempo).
+  const radar = useMemo(() => {
+    const now = Date.now();
+    const hrs = (c: WaChat) => (c.time ? (now - new Date(c.time).getTime()) / 3.6e6 : 9999);
+    const responder: WaChat[] = []; // cliente falou por último (bola com a gente)
+    const followup: WaChat[] = []; // nós falamos, sem resposta 24-72h
+    const recuperacao: WaChat[] = []; // sem resposta há 3+ dias
+    for (const c of chats) {
+      if (!c.fromMe) responder.push(c);
+      else {
+        const h = hrs(c);
+        if (h >= 72) recuperacao.push(c);
+        else if (h >= 24) followup.push(c);
+      }
+    }
+    // Mais antigos (mais urgentes / mais frios) primeiro.
+    const byOld = (a: WaChat, b: WaChat) => (a.time || "").localeCompare(b.time || "");
+    responder.sort(byOld);
+    followup.sort(byOld);
+    recuperacao.sort(byOld);
+    return { responder, followup, recuperacao, total: responder.length + followup.length + recuperacao.length };
+  }, [chats]);
+
+  const openChat = (c: WaChat) => {
+    setActive(c);
+    setView("chats");
+    setScriptsOpen(true);
+  };
+
   return (
     <div className="flex h-[calc(100vh-89px)] flex-col">
       {/* Barra de status */}
-      <div className="flex items-center justify-between border-b border-ink-700 px-6 py-2 sm:px-8">
-        <span className="flex items-center gap-2 text-xs font-bold text-emerald-300">
+      <div className="flex items-center justify-between gap-2 border-b border-ink-700 px-4 py-2 sm:px-6">
+        <span className="hidden items-center gap-2 text-xs font-bold text-emerald-300 sm:flex">
           <span className="h-2 w-2 rounded-full bg-emerald-400" /> Conectado
-          <span className="font-normal text-zinc-500">· {chats.length} conversas</span>
         </span>
+
+        {/* Alternância Conversas / Radar */}
+        <div className="flex items-center gap-1 rounded-xl bg-ink-800 p-1">
+          <button
+            onClick={() => setView("chats")}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+              view === "chats" ? "bg-flame-500 text-black" : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            Conversas
+          </button>
+          <button
+            onClick={() => setView("radar")}
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+              view === "radar" ? "bg-flame-500 text-black" : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Radar size={13} /> Radar
+            {radar.total > 0 && (
+              <span
+                className={`rounded-full px-1.5 text-[10px] ${
+                  view === "radar" ? "bg-black/20 text-black" : "bg-rose-500 text-white"
+                }`}
+              >
+                {radar.total}
+              </span>
+            )}
+          </button>
+        </div>
+
         <button
           onClick={disconnect}
           className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-rose-300 ring-1 ring-ink-700 hover:text-rose-200"
         >
-          <Power size={14} /> Desconectar
+          <Power size={14} /> <span className="hidden sm:inline">Desconectar</span>
         </button>
       </div>
 
+      {view === "radar" ? (
+        <RadarView radar={radar} onOpen={openChat} />
+      ) : (
       <div className="flex flex-1 overflow-hidden">
         {/* Lista de conversas */}
         <aside
@@ -728,6 +791,98 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
           )}
         </section>
       </div>
+      )}
+    </div>
+  );
+}
+
+function RadarView({
+  radar,
+  onOpen,
+}: {
+  radar: {
+    responder: WaChat[];
+    followup: WaChat[];
+    recuperacao: WaChat[];
+    total: number;
+  };
+  onOpen: (c: WaChat) => void;
+}) {
+  const groups = [
+    {
+      key: "responder",
+      title: "Responder agora",
+      hint: "O cliente falou e ninguém respondeu",
+      dot: "bg-rose-500",
+      list: radar.responder,
+    },
+    {
+      key: "followup",
+      title: "Follow-up",
+      hint: "Você falou por último · sem resposta há 24h+",
+      dot: "bg-gold-500",
+      list: radar.followup,
+    },
+    {
+      key: "recuperacao",
+      title: "Recuperação",
+      hint: "Esfriou · sem resposta há 3 dias+",
+      dot: "bg-violet-500",
+      list: radar.recuperacao,
+    },
+  ];
+
+  return (
+    <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5 sm:px-8">
+      {radar.total === 0 && (
+        <p className="py-10 text-center text-sm text-zinc-500">
+          Tudo em dia! Ninguém esperando resposta. 🎉
+        </p>
+      )}
+      {groups.map(
+        (g) =>
+          g.list.length > 0 && (
+            <section key={g.key}>
+              <div className="mb-2 flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 rounded-full ${g.dot}`} />
+                <h3 className="text-sm font-bold uppercase tracking-wide text-zinc-200">
+                  {g.title}
+                </h3>
+                <span className="rounded-full bg-ink-800 px-2 text-[11px] font-bold text-zinc-400">
+                  {g.list.length}
+                </span>
+                <span className="ml-1 text-[11px] text-zinc-500">· {g.hint}</span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+                {g.list.map((c) => (
+                  <button
+                    key={c.jid}
+                    onClick={() => onOpen(c)}
+                    className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/80 px-4 py-3 text-left transition hover:border-flame-500/40"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-zinc-200">
+                      {chatLabel(c).slice(0, 2).toUpperCase()}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-bold text-white">
+                          {chatLabel(c)}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-zinc-500">
+                          {chatTime(c.time)}
+                        </span>
+                      </span>
+                      <span className="block truncate text-xs text-zinc-500">
+                        {c.fromMe ? "Você: " : ""}
+                        {c.preview}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )
+      )}
     </div>
   );
 }

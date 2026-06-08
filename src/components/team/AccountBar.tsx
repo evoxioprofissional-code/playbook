@@ -42,7 +42,7 @@ export default function AccountBar() {
           onClick={() => setOpen(true)}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-flame-500 py-2.5 text-sm font-bold text-black transition hover:bg-flame-400"
         >
-          <LogIn size={16} strokeWidth={2.4} /> Entrar com PIN
+          <LogIn size={16} strokeWidth={2.4} /> Entrar
         </button>
       )}
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Delete, ShieldCheck, UserRound } from "lucide-react";
+import { Delete, ShieldCheck, UserRound, Mail } from "lucide-react";
 import Modal from "@/components/ui/Modal";
-import { fetchEmployees, type Employee } from "@/lib/store";
+import { fetchEmployees, signInEmail, type Employee } from "@/lib/store";
 import { useSession } from "./session";
 
 export default function PinGate({
@@ -14,10 +14,16 @@ export default function PinGate({
   onClose: () => void;
 }) {
   const { login } = useSession();
+  const [mode, setMode] = useState<"pin" | "email">("pin");
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selected, setSelected] = useState<Employee | null>(null);
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
+  // Login por e-mail
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authErr, setAuthErr] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
 
   useEffect(() => {
     if (open) fetchEmployees().then(setEmployees);
@@ -27,6 +33,10 @@ export default function PinGate({
     setSelected(null);
     setPin("");
     setError(false);
+    setMode("pin");
+    setEmail("");
+    setPassword("");
+    setAuthErr("");
   };
 
   const close = () => {
@@ -39,7 +49,6 @@ export default function PinGate({
     setPin((p) => (p.length >= 4 ? p : p + d));
   };
 
-  // Confirma quando o PIN chega a 4 dígitos.
   useEffect(() => {
     if (!selected || pin.length !== 4) return;
     if (pin === selected.pin) {
@@ -57,18 +66,123 @@ export default function PinGate({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pin]);
 
+  async function loginEmail() {
+    if (!email.trim() || !password) return;
+    setAuthLoading(true);
+    setAuthErr("");
+    const r = await signInEmail(email, password);
+    setAuthLoading(false);
+    if (!r.ok) {
+      setAuthErr(
+        r.error === "Email not confirmed"
+          ? "E-mail ainda não confirmado no Supabase (desative a confirmação)."
+          : "E-mail ou senha incorretos."
+      );
+      return;
+    }
+    login({ id: r.user!.id, name: r.user!.name, role: "gestor", areas: null });
+    close();
+  }
+
+  const title =
+    mode === "email"
+      ? "Entrar como Admin"
+      : selected
+        ? `PIN de ${selected.name}`
+        : "Quem está usando?";
+
   return (
     <Modal
       open={open}
       onClose={close}
-      title={selected ? `PIN de ${selected.name}` : "Quem está usando?"}
+      title={title}
       subtitle={
-        selected
-          ? "Digite seu PIN de 4 dígitos para registrar suas tarefas."
-          : "Selecione seu nome para entrar."
+        mode === "email"
+          ? "Acesso do gestor por e-mail e senha."
+          : selected
+            ? "Digite seu PIN de 4 dígitos."
+            : "Funcionário entra com PIN; admin entra com e-mail."
       }
     >
-      {!selected ? (
+      {/* Alternância de modo (só quando não está digitando PIN) */}
+      {!selected && (
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-ink-800 p-1">
+          <button
+            onClick={() => setMode("pin")}
+            className={`rounded-lg py-2 text-xs font-bold transition ${
+              mode === "pin" ? "bg-flame-500 text-black" : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            Funcionário (PIN)
+          </button>
+          <button
+            onClick={() => setMode("email")}
+            className={`rounded-lg py-2 text-xs font-bold transition ${
+              mode === "email" ? "bg-flame-500 text-black" : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            Admin (e-mail)
+          </button>
+        </div>
+      )}
+
+      {mode === "email" ? (
+        <div className="space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              E-mail
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="voce@email.com"
+              className="pg-inp"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              Senha
+            </span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loginEmail()}
+              placeholder="••••••••"
+              className="pg-inp"
+            />
+          </label>
+          {authErr && <p className="text-xs font-semibold text-rose-400">{authErr}</p>}
+          <button
+            onClick={loginEmail}
+            disabled={!email.trim() || !password || authLoading}
+            className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
+              email.trim() && password && !authLoading
+                ? "bg-flame-500 text-black hover:bg-flame-400"
+                : "cursor-not-allowed bg-ink-700 text-zinc-500"
+            }`}
+          >
+            <Mail size={16} /> {authLoading ? "Entrando…" : "Entrar"}
+          </button>
+
+          <style jsx>{`
+            :global(.pg-inp) {
+              width: 100%;
+              border-radius: 0.6rem;
+              border: 1px solid #26262c;
+              background: #0a0a0b;
+              padding: 0.6rem 0.75rem;
+              font-size: 0.9rem;
+              color: #f4f4f5;
+              outline: none;
+            }
+            :global(.pg-inp:focus) {
+              border-color: #ff6b1a;
+            }
+          `}</style>
+        </div>
+      ) : !selected ? (
         <ul className="space-y-2">
           {employees.map((e) => (
             <li key={e.id}>
@@ -77,16 +191,10 @@ export default function PinGate({
                 className="flex w-full items-center gap-3 rounded-xl border border-ink-700 bg-ink-900 px-3 py-3 text-left transition hover:border-flame-500/40"
               >
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink-800 text-flame-400">
-                  {e.role === "gestor" ? (
-                    <ShieldCheck size={18} />
-                  ) : (
-                    <UserRound size={18} />
-                  )}
+                  {e.role === "gestor" ? <ShieldCheck size={18} /> : <UserRound size={18} />}
                 </span>
                 <span>
-                  <span className="block text-sm font-bold text-white">
-                    {e.name}
-                  </span>
+                  <span className="block text-sm font-bold text-white">{e.name}</span>
                   <span className="block text-[11px] uppercase tracking-wide text-zinc-500">
                     {e.role}
                   </span>
@@ -102,11 +210,7 @@ export default function PinGate({
               <span
                 key={i}
                 className={`h-3.5 w-3.5 rounded-full transition ${
-                  error
-                    ? "bg-rose-500"
-                    : pin.length > i
-                      ? "bg-flame-500"
-                      : "bg-ink-700"
+                  error ? "bg-rose-500" : pin.length > i ? "bg-flame-500" : "bg-ink-700"
                 }`}
               />
             ))}
@@ -143,13 +247,7 @@ export default function PinGate({
   );
 }
 
-function Key({
-  children,
-  onClick,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-}) {
+function Key({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
     <button
       onClick={onClick}

@@ -91,6 +91,23 @@ export async function deleteEmployee(id: string): Promise<{ ok: boolean; error?:
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
+/** Login do admin por e-mail e senha (Supabase Auth). */
+export async function signInEmail(
+  email: string,
+  password: string
+): Promise<{ ok: boolean; user?: { id: string; name: string }; error?: string }> {
+  if (!supabase) return { ok: false, error: "Supabase não conectado." };
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password,
+  });
+  if (error) return { ok: false, error: error.message };
+  const u = data.user;
+  const name =
+    (u?.user_metadata?.name as string) || u?.email?.split("@")[0] || "Admin";
+  return { ok: true, user: { id: u!.id, name } };
+}
+
 export async function fetchLogs(): Promise<TaskLog[]> {
   if (supabase) {
     const { data, error } = await supabase
