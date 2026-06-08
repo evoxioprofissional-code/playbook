@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   RefreshCw,
-  UserRound,
   Clock,
   TriangleAlert,
   Activity,
@@ -151,123 +150,64 @@ export default function TeamBoard() {
         </div>
       )}
 
-      {/* Ranking / pódio */}
-      {stats.some((s) => s.done > 0) && (
-        <section>
-          <div className="mb-3 flex items-center gap-2">
-            <Trophy size={16} className="text-gold-400" />
-            <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-300">
-              Ranking do mês
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            {stats.map((s, i) => {
-              const medal = ["🥇", "🥈", "🥉"][i] ?? `${i + 1}º`;
-              const leader = i === 0 && s.done > 0;
-              return (
-                <div
-                  key={s.emp.id}
-                  className={`flex items-center gap-3 rounded-2xl border p-4 ${
-                    leader
-                      ? "border-gold-500/40 bg-gradient-to-br from-gold-500/15 to-transparent"
-                      : "border-ink-700 bg-ink-900/80"
-                  }`}
-                >
-                  <span className="text-2xl">{medal}</span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-extrabold text-white">
-                      {s.emp.name}
-                    </p>
-                    <p className="text-[11px] text-zinc-500">{s.done} caixas</p>
-                  </div>
-                  <span
-                    className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${
-                      s.streak > 0
-                        ? "bg-flame-500/15 text-flame-400"
-                        : "bg-ink-800 text-zinc-500"
-                    }`}
-                    title="Dias seguidos marcando"
+      {/* Placar da equipe */}
+      <section>
+        <div className="mb-3 flex items-center gap-2">
+          <Trophy size={16} className="text-gold-400" />
+          <h2 className="text-sm font-bold uppercase tracking-wide text-zinc-300">
+            Ranking do mês
+          </h2>
+        </div>
+        <div className="overflow-hidden rounded-2xl border border-ink-700">
+          {stats.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-zinc-500">
+              Nenhum funcionário cadastrado.
+            </p>
+          ) : (
+            <ul className="divide-y divide-ink-700">
+              {stats.map((s, i) => {
+                const pct = Math.round((s.done / TOTAL_SLOTS) * 100);
+                const medal = ["🥇", "🥈", "🥉"][i] ?? `${i + 1}º`;
+                return (
+                  <li
+                    key={s.emp.id}
+                    className="flex items-center gap-3 bg-ink-900/60 px-4 py-3"
                   >
-                    <Flame size={12} /> {s.streak}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {stats.map(({ emp, mine, done, streak, last }) => {
-          const pct = Math.round((done / TOTAL_SLOTS) * 100);
-          return (
-            <article
-              key={emp.id}
-              className="rounded-2xl border border-ink-700 bg-ink-900/80 p-5"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-ink-800 text-flame-400">
-                    <UserRound size={18} />
-                  </span>
-                  <h3 className="text-base font-extrabold text-white">
-                    {emp.name}
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className="flex items-center gap-1 rounded-full bg-flame-500/15 px-2 py-0.5 text-[11px] font-bold text-flame-400"
-                    title="Dias seguidos"
-                  >
-                    <Flame size={12} /> {streak}
-                  </span>
-                  <span className="text-xl font-extrabold text-flame-400">
-                    {pct}%
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-ink-800">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-              <p className="mt-1.5 text-[11px] text-zinc-500">
-                {done} de {TOTAL_SLOTS} caixas
-              </p>
-
-              <div className="mt-4 space-y-2">
-                {PHASES.map((p) => {
-                  const inPhase = countByPhase(mine, p.id);
-                  const totalPhase = SLOTS_PER_PHASE.get(p.id) || 1;
-                  const pp = Math.round((inPhase / totalPhase) * 100);
-                  return (
-                    <div key={p.id} className="flex items-center gap-2">
-                      <span className="w-12 shrink-0 text-[10px] font-bold uppercase tracking-wide text-zinc-500">
-                        {p.tag}
-                      </span>
-                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-800">
-                        <div
-                          className="h-full rounded-full bg-flame-500/70"
-                          style={{ width: `${pp}%` }}
-                        />
+                    <span className="w-7 shrink-0 text-center text-xl">{medal}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-bold text-white">
+                          {s.emp.name}
+                        </p>
+                        <span className="shrink-0 text-base font-extrabold text-flame-400">
+                          {pct}%
+                        </span>
                       </div>
-                      <span className="w-12 shrink-0 text-right text-[10px] font-semibold text-zinc-400">
-                        {inPhase}/{totalPhase}
-                      </span>
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-800">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span
+                          className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-flame-400"
+                          title="Dias seguidos"
+                        >
+                          <Flame size={12} /> {s.streak}
+                        </span>
+                      </div>
+                      <p className="mt-1 flex items-center gap-1 text-[10px] text-zinc-500">
+                        <Clock size={11} />
+                        {s.last ? formatWhen(s.last) : "sem marcações"} · {s.done}/{TOTAL_SLOTS}
+                      </p>
                     </div>
-                  );
-                })}
-              </div>
-
-              <p className="mt-4 flex items-center gap-1.5 text-[11px] text-zinc-500">
-                <Clock size={12} />
-                {last ? `Última marcação: ${formatWhen(last)}` : "Sem marcações ainda"}
-              </p>
-            </article>
-          );
-        })}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </section>
 
       <section>

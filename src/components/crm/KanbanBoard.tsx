@@ -29,10 +29,12 @@ export default function KanbanBoard() {
   const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  // now=0 até montar no cliente (evita divergência de hidratação no relógio).
+  const [now, setNow] = useState(0);
 
   // Relógio do SLA — atualiza a cada segundo.
   useEffect(() => {
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -60,45 +62,35 @@ export default function KanbanBoard() {
     .filter((l) => l.column === "ganho")
     .reduce((s, l) => s + l.value, 0);
   const goalPct = Math.min(100, Math.round((won / META_MES) * 100));
-  const closed = leads.filter((l) => l.column === "ganho").length;
-  const conv = leads.length ? Math.round((closed / leads.length) * 100) : 0;
   const slaBreaches = leads.filter(
     (l) => l.column === "novo" && !slaStatus(l.createdAt, now).ok
   ).length;
 
   return (
     <div className="flex h-[calc(100vh-89px)] flex-col">
-      {/* Meta do mês */}
-      <div className="px-6 pt-4 sm:px-8">
-        <div className="rounded-2xl border border-ink-700 bg-ink-900/80 p-4">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-zinc-300">
-              <Target size={15} className="text-flame-400" /> Meta do mês
+      {/* Resumo */}
+      <div className="flex flex-wrap items-center gap-3 px-6 py-4 sm:px-8">
+        <Kpi label="No funil" value={formatBRL(pipeline)} tone="flame" />
+        <Kpi label="Fechado no mês" value={formatBRL(won)} tone="emerald" />
+        {slaBreaches > 0 && (
+          <Kpi label="Responder já!" value={String(slaBreaches)} tone="rose" />
+        )}
+
+        <div className="min-w-[170px] rounded-xl bg-ink-900 px-4 py-2 ring-1 ring-ink-700">
+          <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+            <span className="flex items-center gap-1">
+              <Target size={11} className="text-flame-400" /> Meta do mês
             </span>
-            <span className="text-sm font-bold text-zinc-300">
-              <span className="text-emerald-400">{formatBRL(won)}</span>
-              <span className="text-zinc-600"> / {formatBRL(META_MES)}</span>
-              <span className="ml-2 text-flame-400">{goalPct}%</span>
-            </span>
+            <span className="text-flame-400">{goalPct}%</span>
           </div>
-          <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-ink-800">
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-ink-800">
             <div
               className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all duration-700"
               style={{ width: `${goalPct}%` }}
             />
           </div>
         </div>
-      </div>
 
-      {/* KPIs */}
-      <div className="flex flex-wrap items-center gap-3 px-6 py-4 sm:px-8">
-        <Kpi label="Em pipeline" value={formatBRL(pipeline)} tone="flame" />
-        <Kpi label="Conversão" value={`${conv}%`} tone="emerald" />
-        <Kpi
-          label="SLA estourado"
-          value={String(slaBreaches)}
-          tone={slaBreaches ? "rose" : "zinc"}
-        />
         <button
           onClick={() => setAdding(true)}
           className="ml-auto flex items-center gap-1.5 rounded-xl bg-flame-500 px-3.5 py-2 text-sm font-bold text-black transition hover:bg-flame-400"
@@ -107,22 +99,28 @@ export default function KanbanBoard() {
         </button>
       </div>
 
-      <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-        <div className="flex flex-1 gap-4 overflow-x-auto px-6 pb-6 sm:px-8">
-          {COLUMNS.map((col) => (
-            <KanbanColumn
-              key={col.id}
-              col={col}
-              leads={leads.filter((l) => l.column === col.id)}
-              now={now}
-            />
-          ))}
+      {now === 0 ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-zinc-600">
+          Carregando leads…
         </div>
+      ) : (
+        <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
+          <div className="flex flex-1 gap-4 overflow-x-auto px-6 pb-6 sm:px-8">
+            {COLUMNS.map((col) => (
+              <KanbanColumn
+                key={col.id}
+                col={col}
+                leads={leads.filter((l) => l.column === col.id)}
+                now={now}
+              />
+            ))}
+          </div>
 
-        <DragOverlay dropAnimation={null}>
-          {activeLead ? <LeadCard lead={activeLead} now={now} overlay /> : null}
-        </DragOverlay>
-      </DndContext>
+          <DragOverlay dropAnimation={null}>
+            {activeLead ? <LeadCard lead={activeLead} now={now} overlay /> : null}
+          </DragOverlay>
+        </DndContext>
+      )}
 
       <NewLeadModal
         open={adding}
@@ -241,7 +239,7 @@ function LeadCard({
   overlay?: boolean;
 }) {
   const isNew = lead.column === "novo";
-  const sla = isNew ? slaStatus(lead.createdAt, now) : null;
+  const sla = isNew && now > 0 ? slaStatus(lead.createdAt, now) : null;
 
   return (
     <div

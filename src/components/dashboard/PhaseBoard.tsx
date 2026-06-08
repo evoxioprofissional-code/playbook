@@ -22,7 +22,7 @@ import {
   type Section,
   type Task,
 } from "@/lib/playbook";
-import { monthInfo, dayKey, slotCount, cadenceLabel } from "@/lib/period";
+import { monthInfo, dayKey, slotCount } from "@/lib/period";
 import Modal from "@/components/ui/Modal";
 import { useSession } from "@/components/team/session";
 import { addLog, fetchLogs, removeLog, type TaskLog } from "@/lib/store";
@@ -303,14 +303,6 @@ function PhaseDetail({
         </div>
       </div>
 
-      {/* Legenda */}
-      <div className="mt-3 flex flex-wrap items-center gap-4 px-1 text-[11px] text-zinc-500">
-        <Legend className="bg-flame-500" label="Feito" />
-        <Legend className="bg-ink-700 ring-2 ring-flame-400" label="Hoje" />
-        <Legend className="bg-ink-800" label="A fazer" />
-        <Legend className="border border-rose-500/40 bg-rose-500/10" label="Dia perdido" />
-      </div>
-
       {/* Seções */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
         {phase.sections.map((section) => (
@@ -342,15 +334,6 @@ function PhaseDetail({
         </div>
       </div>
     </div>
-  );
-}
-
-function Legend({ className, label }: { className: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className={`h-3 w-3 rounded-[4px] ${className}`} />
-      {label}
-    </span>
   );
 }
 
@@ -499,144 +482,88 @@ function TaskTrack({
 }) {
   const total = slotCount(task);
   const capped = Math.min(done, total);
+  const pct = total ? Math.round((capped / total) * 100) : 0;
+  const { year, month, todayDay } = monthInfo();
 
-  return (
-    <div className={canEdit ? "" : "opacity-50"}>
-      <div className="mb-1.5 flex items-start justify-between gap-2">
-        <p className="text-sm leading-snug text-zinc-200">{task.label}</p>
-        <span className="shrink-0 rounded-md bg-ink-800 px-1.5 py-0.5 text-[10px] font-bold text-zinc-400">
-          {capped}/{total}
-        </span>
+  let action: React.ReactNode = null;
+  if (task.cadence === "daily") {
+    const today = dayKey(year, month, todayDay);
+    const doneToday = mine.has(slotKey(task.id, today));
+    action = (
+      <ActionBtn done={doneToday} canEdit={canEdit} onClick={() => toggle(task.id, today)}>
+        {doneToday ? "✓ Hoje" : "Marcar hoje"}
+      </ActionBtn>
+    );
+  } else if (task.cadence === "count") {
+    const full = capped >= total;
+    action = (
+      <div className="flex shrink-0 items-center gap-1">
+        {capped > 0 && canEdit && (
+          <button
+            onClick={() => toggle(task.id, String(capped))}
+            title="Desfazer um"
+            className="rounded-lg bg-ink-800 px-2 py-1.5 text-xs font-bold text-zinc-400 ring-1 ring-ink-700 hover:text-white"
+          >
+            −
+          </button>
+        )}
+        <ActionBtn done={full} canEdit={canEdit && !full} onClick={() => toggle(task.id, String(capped + 1))}>
+          {full ? "✓ Feito" : "+1"}
+        </ActionBtn>
       </div>
-      <p className="mb-2 text-[10px] uppercase tracking-wide text-zinc-600">
-        {cadenceLabel(task)}
-      </p>
+    );
+  } else {
+    const doneOnce = mine.has(slotKey(task.id, "done"));
+    action = (
+      <ActionBtn done={doneOnce} canEdit={canEdit} onClick={() => toggle(task.id, "done")}>
+        {doneOnce ? "✓ Concluído" : "Concluir"}
+      </ActionBtn>
+    );
+  }
 
-      {task.cadence === "daily" && (
-        <DailyGrid task={task} mine={mine} toggle={toggle} canEdit={canEdit} />
-      )}
-      {task.cadence === "count" && (
-        <CountGrid task={task} mine={mine} toggle={toggle} canEdit={canEdit} total={total} />
-      )}
-      {task.cadence === "once" && (
-        <OnceToggle task={task} mine={mine} toggle={toggle} canEdit={canEdit} />
-      )}
-    </div>
-  );
-}
-
-function DailyGrid({
-  task,
-  mine,
-  toggle,
-  canEdit,
-}: {
-  task: Task;
-  mine: Set<string>;
-  toggle: (taskId: string, slot: string) => void;
-  canEdit: boolean;
-}) {
-  const { year, month, days, todayDay } = monthInfo();
   return (
-    <div className="flex flex-wrap gap-1">
-      {Array.from({ length: days }, (_, i) => i + 1).map((day) => {
-        const slot = dayKey(year, month, day);
-        const isDone = mine.has(slotKey(task.id, slot));
-        const isToday = day === todayDay;
-        const isPast = day < todayDay;
-        const clickable = canEdit && isToday;
-
-        let cls = "bg-ink-800 text-zinc-600"; // futuro / a fazer
-        if (isDone) cls = "bg-flame-500 text-black";
-        else if (isToday) cls = "bg-ink-700 text-flame-300 ring-2 ring-flame-400";
-        else if (isPast) cls = "border border-rose-500/40 bg-rose-500/10 text-rose-400/70";
-
-        return (
-          <button
-            key={day}
-            disabled={!clickable}
-            onClick={() => toggle(task.id, slot)}
-            title={`Dia ${day}${isDone ? " · feito" : isToday ? " · hoje" : isPast ? " · perdido" : ""}`}
-            className={`flex h-6 w-6 items-center justify-center rounded-[5px] text-[10px] font-bold transition ${cls} ${
-              clickable ? "cursor-pointer hover:scale-110" : "cursor-default"
-            }`}
-          >
-            {day}
-          </button>
-        );
-      })}
+    <div className="flex items-center gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm leading-snug text-zinc-200">{task.label}</p>
+        <div className="mt-1.5 flex items-center gap-2">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-800">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-flame-500 to-gold-500 transition-all"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="shrink-0 text-[10px] font-semibold text-zinc-500">
+            {capped}/{total}
+          </span>
+        </div>
+      </div>
+      {action}
     </div>
   );
 }
 
-function CountGrid({
-  task,
-  mine,
-  toggle,
+function ActionBtn({
+  done,
   canEdit,
-  total,
+  onClick,
+  children,
 }: {
-  task: Task;
-  mine: Set<string>;
-  toggle: (taskId: string, slot: string) => void;
+  done: boolean;
   canEdit: boolean;
-  total: number;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {Array.from({ length: total }, (_, i) => i + 1).map((n) => {
-        const slot = String(n);
-        const isDone = mine.has(slotKey(task.id, slot));
-        return (
-          <button
-            key={n}
-            disabled={!canEdit}
-            onClick={() => toggle(task.id, slot)}
-            title={`Unidade ${n}`}
-            className={`flex h-7 w-7 items-center justify-center rounded-md text-[11px] font-bold transition ${
-              isDone
-                ? "bg-flame-500 text-black"
-                : "bg-ink-800 text-zinc-500 ring-1 ring-ink-700"
-            } ${canEdit ? "cursor-pointer hover:scale-110" : "cursor-default"}`}
-          >
-            {isDone ? <Check size={13} strokeWidth={3.5} /> : n}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function OnceToggle({
-  task,
-  mine,
-  toggle,
-  canEdit,
-}: {
-  task: Task;
-  mine: Set<string>;
-  toggle: (taskId: string, slot: string) => void;
-  canEdit: boolean;
-}) {
-  const isDone = mine.has(slotKey(task.id, "done"));
   return (
     <button
       disabled={!canEdit}
-      onClick={() => toggle(task.id, "done")}
-      className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-bold transition ${
-        isDone
-          ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/30"
-          : "bg-ink-800 text-zinc-400 ring-1 ring-ink-700"
-      } ${canEdit ? "hover:text-white" : ""}`}
+      onClick={onClick}
+      className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+        done
+          ? "bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/30"
+          : "bg-flame-500 text-black hover:bg-flame-400"
+      } ${!canEdit ? "opacity-50" : ""}`}
     >
-      <span
-        className={`flex h-4 w-4 items-center justify-center rounded border ${
-          isDone ? "border-emerald-400 bg-emerald-500 text-black" : "border-ink-600"
-        }`}
-      >
-        {isDone && <Check size={11} strokeWidth={3.5} />}
-      </span>
-      {isDone ? "Concluído" : "Marcar"}
+      {children}
     </button>
   );
 }
