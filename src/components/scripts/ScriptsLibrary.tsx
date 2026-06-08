@@ -12,6 +12,7 @@ import { waLink, waSend, waStatus } from "@/lib/wa";
 import { useScripts } from "@/components/scripts/useScripts";
 import ScriptEditor from "@/components/scripts/ScriptEditor";
 import type { SavedScript } from "@/lib/scriptsStore";
+import { useSession } from "@/components/team/session";
 
 type Filter = "todos" | "direcionadas" | ScriptCategory;
 
@@ -39,6 +40,7 @@ export default function ScriptsLibrary() {
   const { scripts: allScripts, save, remove } = useScripts();
   const [editing, setEditing] = useState<SavedScript | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const { user } = useSession();
 
   useEffect(() => {
     try {
@@ -54,13 +56,19 @@ export default function ScriptsLibrary() {
   }, [values]);
 
   const fill = useMemo(
-    () => (body: string) =>
-      body.replace(/\{(\w+)\}/g, (_, t) => {
+    () => (body: string) => {
+      // {vendedor} vem automaticamente do vendedor logado (PIN).
+      const merged: Record<string, string> = {
+        ...values,
+        vendedor: user?.name || values.vendedor || "",
+      };
+      return body.replace(/\{(\w+)\}/g, (_, t) => {
         const f = SCRIPT_FIELDS.find((x) => x.token === t);
-        const v = values[t]?.trim();
+        const v = merged[t]?.trim();
         return v || (f ? `[${f.label.toLowerCase()}]` : `{${t}}`);
-      }),
-    [values]
+      });
+    },
+    [values, user]
   );
 
   const phone = values.telefone;
@@ -134,7 +142,7 @@ export default function ScriptsLibrary() {
               className="w-full rounded-lg border border-emerald-500/30 bg-ink-950 px-2.5 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-emerald-500"
             />
           </label>
-          {SCRIPT_FIELDS.map((f) => (
+          {SCRIPT_FIELDS.filter((f) => f.token !== "vendedor").map((f) => (
             <label key={f.token} className="block">
               <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
                 {f.label}
@@ -149,9 +157,12 @@ export default function ScriptsLibrary() {
           ))}
         </div>
         <p className="mt-2 text-[11px] text-zinc-500">
+          {user
+            ? `Seu nome (${user.name}) entra automático nos scripts pelo login.`
+            : "Entre com PIN (canto inferior esquerdo) pra seu nome entrar automático nos scripts."}
           {connected
-            ? "Conectado: o botão envia a mensagem direto pro número do cliente."
-            : "Conecte em WhatsApp (menu) pra enviar direto. Sem conexão, o botão abre o WhatsApp com a mensagem pronta."}
+            ? " WhatsApp conectado: envia direto pro cliente."
+            : " Sem WhatsApp conectado: o botão abre o WhatsApp com a mensagem pronta."}
         </p>
       </div>
 

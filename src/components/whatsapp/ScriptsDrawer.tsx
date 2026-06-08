@@ -7,6 +7,7 @@ import { fillBody, loadFieldValues, type SavedScript } from "@/lib/scriptsStore"
 import { CATEGORY_OPTIONS } from "@/lib/scriptsStore";
 import { useScripts } from "@/components/scripts/useScripts";
 import ScriptEditor from "@/components/scripts/ScriptEditor";
+import { useSession } from "@/components/team/session";
 
 export default function ScriptsDrawer({
   open,
@@ -22,13 +23,22 @@ export default function ScriptsDrawer({
   onSend: (text: string) => void;
 }) {
   const { scripts, save, remove } = useScripts();
+  const { user } = useSession();
   const [q, setQ] = useState("");
   const [editing, setEditing] = useState<SavedScript | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
 
   const values = useMemo(
-    () => ({ ...loadFieldValues(), cliente: contactName }),
-    [contactName, open]
+    () => {
+      const saved = loadFieldValues();
+      return {
+        ...saved,
+        cliente: contactName,
+        // {vendedor} = vendedor logado (PIN) usando o sistema.
+        vendedor: user?.name || saved.vendedor || "",
+      };
+    },
+    [contactName, open, user]
   );
 
   const filtered = useMemo(() => {
