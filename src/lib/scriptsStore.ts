@@ -6,6 +6,8 @@ export type SavedScript = {
   channel: Channel;
   title: string;
   body: string;
+  /** Nota de voz (base64 data URL). Se presente, o script envia como áudio. */
+  audio?: string;
 };
 
 const LS = "j2a_scripts_v1";

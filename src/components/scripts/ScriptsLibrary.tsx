@@ -8,7 +8,7 @@ import {
   SCRIPT_FIELDS,
   type ScriptCategory,
 } from "@/lib/scripts";
-import { waLink, waSend, waStatus } from "@/lib/wa";
+import { waLink, waSend, waSendMedia, waStatus } from "@/lib/wa";
 import { useScripts } from "@/components/scripts/useScripts";
 import ScriptEditor from "@/components/scripts/ScriptEditor";
 import type { SavedScript } from "@/lib/scriptsStore";
@@ -102,6 +102,18 @@ export default function ScriptsLibrary() {
       }
     }
     window.open(waLink(phone, text), "_blank", "noopener");
+  }
+
+  // Envia a nota de voz do script (precisa de WhatsApp conectado + telefone).
+  async function whatsAudio(id: string, base64: string) {
+    if (!phone?.trim()) return;
+    setBusy(id);
+    const r = await waSendMedia({ number: phone, kind: "audio", media: base64 });
+    setBusy(null);
+    if (r.ok) {
+      setSent(id);
+      setTimeout(() => setSent((s) => (s === id ? null : s)), 1900);
+    }
   }
 
   const scripts =
@@ -238,30 +250,63 @@ export default function ScriptsLibrary() {
                   {s.title}
                 </h2>
 
-                <p className="mt-2 flex-1 rounded-xl border border-ink-700 bg-ink-950 p-4 text-sm leading-relaxed text-zinc-300">
-                  {text}
-                </p>
+                {s.audio ? (
+                  <div className="mt-2 flex-1">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <audio controls src={s.audio} className="h-10 w-full" />
+                    {s.body.trim() && (
+                      <p className="mt-2 text-xs text-zinc-500">{text}</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-2 flex-1 rounded-xl border border-ink-700 bg-ink-950 p-4 text-sm leading-relaxed text-zinc-300">
+                    {text}
+                  </p>
+                )}
 
                 <div className="mt-4 grid grid-cols-2 gap-2">
-                  <button
-                    onClick={() => copy(s.id, text)}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold transition ${
-                      copied === s.id
-                        ? "bg-emerald-500 text-black"
-                        : "bg-ink-800 text-zinc-200 ring-1 ring-ink-700 hover:text-white"
-                    }`}
-                  >
-                    {copied === s.id ? (
-                      <>
-                        <Check size={15} strokeWidth={2.8} /> Copiado
-                      </>
-                    ) : (
-                      <>
-                        <Copy size={15} strokeWidth={2.2} /> Copiar
-                      </>
-                    )}
-                  </button>
-                  <WhatsButton id={s.id} text={text} whats={whats} wa={waState} />
+                  {s.audio ? (
+                    <button
+                      onClick={() => whatsAudio(s.id, s.audio as string)}
+                      disabled={!connected || !phone?.trim() || busy === s.id}
+                      title={!connected || !phone?.trim() ? "Conecte o WhatsApp e preencha o telefone do cliente" : ""}
+                      className="col-span-2 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500 py-2.5 text-sm font-bold text-black transition hover:bg-emerald-400 disabled:opacity-40"
+                    >
+                      {sent === s.id ? (
+                        <>
+                          <Check size={15} strokeWidth={2.8} /> Enviado
+                        </>
+                      ) : busy === s.id ? (
+                        "Enviando..."
+                      ) : (
+                        <>
+                          <Send size={15} strokeWidth={2.4} /> Enviar nota de voz
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => copy(s.id, text)}
+                        className={`flex items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold transition ${
+                          copied === s.id
+                            ? "bg-emerald-500 text-black"
+                            : "bg-ink-800 text-zinc-200 ring-1 ring-ink-700 hover:text-white"
+                        }`}
+                      >
+                        {copied === s.id ? (
+                          <>
+                            <Check size={15} strokeWidth={2.8} /> Copiado
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={15} strokeWidth={2.2} /> Copiar
+                          </>
+                        )}
+                      </button>
+                      <WhatsButton id={s.id} text={text} whats={whats} wa={waState} />
+                    </>
+                  )}
                 </div>
               </article>
             );

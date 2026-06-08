@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { X, Plus, Search, Pencil, Send, ArrowDownToLine } from "lucide-react";
+import { X, Plus, Search, Pencil, Send, ArrowDownToLine, Mic } from "lucide-react";
 import { CATEGORY_LABEL } from "@/lib/scripts";
 import { fillBody, loadFieldValues, type SavedScript } from "@/lib/scriptsStore";
 import { CATEGORY_OPTIONS } from "@/lib/scriptsStore";
@@ -15,12 +15,14 @@ export default function ScriptsDrawer({
   contactName,
   onInsert,
   onSend,
+  onSendAudio,
 }: {
   open: boolean;
   onClose: () => void;
   contactName: string;
   onInsert: (text: string) => void;
   onSend: (text: string) => void;
+  onSendAudio: (base64: string) => void;
 }) {
   const { scripts, save, remove } = useScripts();
   const { user } = useSession();
@@ -112,13 +114,17 @@ export default function ScriptsDrawer({
               <div className="space-y-2">
                 {g.items.map((s) => {
                   const text = fillBody(s.body, values);
+                  const isAudio = Boolean(s.audio);
                   return (
                     <div
                       key={s.id}
                       className="rounded-xl border border-ink-700 bg-ink-850 p-3 transition hover:border-flame-500/40"
                     >
                       <div className="mb-1 flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-bold text-white">{s.title}</p>
+                        <p className="flex min-w-0 items-center gap-1.5 truncate text-sm font-bold text-white">
+                          {isAudio && <Mic size={13} className="shrink-0 text-emerald-400" />}
+                          {s.title}
+                        </p>
                         <button
                           onClick={() => {
                             setEditing(s);
@@ -130,29 +136,48 @@ export default function ScriptsDrawer({
                           <Pencil size={14} />
                         </button>
                       </div>
-                      <p className="mb-2.5 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">
-                        {text}
-                      </p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => {
-                            onInsert(text);
-                            onClose();
-                          }}
-                          className="flex items-center justify-center gap-1.5 rounded-lg bg-ink-800 py-2 text-xs font-bold text-zinc-200 ring-1 ring-ink-700 hover:text-white"
-                        >
-                          <ArrowDownToLine size={14} /> Inserir
-                        </button>
-                        <button
-                          onClick={() => {
-                            onSend(text);
-                            onClose();
-                          }}
-                          className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 py-2 text-xs font-bold text-black hover:bg-emerald-400"
-                        >
-                          <Send size={14} /> Enviar
-                        </button>
-                      </div>
+
+                      {isAudio ? (
+                        <>
+                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                          <audio controls src={s.audio} className="mb-2.5 h-9 w-full" />
+                          <button
+                            onClick={() => {
+                              onSendAudio(s.audio as string);
+                              onClose();
+                            }}
+                            className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-500 py-2 text-xs font-bold text-black hover:bg-emerald-400"
+                          >
+                            <Send size={14} /> Enviar nota de voz
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <p className="mb-2.5 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">
+                            {text}
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => {
+                                onInsert(text);
+                                onClose();
+                              }}
+                              className="flex items-center justify-center gap-1.5 rounded-lg bg-ink-800 py-2 text-xs font-bold text-zinc-200 ring-1 ring-ink-700 hover:text-white"
+                            >
+                              <ArrowDownToLine size={14} /> Inserir
+                            </button>
+                            <button
+                              onClick={() => {
+                                onSend(text);
+                                onClose();
+                              }}
+                              className="flex items-center justify-center gap-1.5 rounded-lg bg-emerald-500 py-2 text-xs font-bold text-black hover:bg-emerald-400"
+                            >
+                              <Send size={14} /> Enviar
+                            </button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   );
                 })}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2, Mic, Square } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import { CATEGORY_OPTIONS, newId, type SavedScript } from "@/lib/scriptsStore";
 import type { Channel, ScriptCategory } from "@/lib/scripts";
@@ -13,6 +13,15 @@ const EMPTY: SavedScript = {
   title: "",
   body: "",
 };
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = reject;
+    r.onload = () => resolve(r.result as string);
+    r.readAsDataURL(blob);
+  });
+}
 
 export default function ScriptEditor({
   open,
@@ -28,12 +37,46 @@ export default function ScriptEditor({
   onDelete?: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<SavedScript>(EMPTY);
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     setDraft(initial ? { ...initial } : { ...EMPTY, id: newId() });
   }, [initial, open]);
 
-  const canSave = draft.title.trim() && draft.body.trim();
+  const canSave = draft.title.trim() && (draft.body.trim() || draft.audio);
+
+  async function startRec() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (timerRef.current) clearInterval(timerRef.current);
+        setRecording(false);
+        setRecSecs(0);
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
+        const b64 = await blobToBase64(blob);
+        setDraft((d) => ({ ...d, audio: b64 }));
+      };
+      mr.start();
+      recRef.current = mr;
+      setRecording(true);
+      setRecSecs(0);
+      timerRef.current = setInterval(() => setRecSecs((s) => s + 1), 1000);
+    } catch {
+      alert("Não consegui acessar o microfone. Permita o acesso no navegador.");
+    }
+  }
+
+  function stopRec() {
+    recRef.current?.stop();
+  }
 
   return (
     <Modal
@@ -100,15 +143,53 @@ export default function ScriptEditor({
             </select>
           </Field>
         </div>
-        <Field label="Mensagem">
+        <Field label={draft.audio ? "Texto (opcional — vai junto da nota de voz?)" : "Mensagem"}>
           <textarea
             value={draft.body}
             onChange={(e) => setDraft({ ...draft, body: e.target.value })}
-            rows={6}
+            rows={draft.audio ? 3 : 6}
             placeholder="Olá {cliente}! Aqui é o {vendedor} da fábrica J2A Bonés…"
             className="se-inp resize-none"
           />
         </Field>
+
+        {/* Áudio (nota de voz) */}
+        <div>
+          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+            Nota de voz (opcional)
+          </span>
+          {draft.audio ? (
+            <div className="flex items-center gap-2 rounded-xl border border-ink-700 bg-ink-950 p-2">
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <audio controls src={draft.audio} className="h-9 flex-1" />
+              <button
+                onClick={() => setDraft((d) => ({ ...d, audio: undefined }))}
+                className="rounded-lg p-2 text-zinc-400 hover:text-rose-400"
+                title="Remover áudio"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ) : recording ? (
+            <button
+              onClick={stopRec}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-500/40 bg-rose-500/10 py-2.5 text-sm font-bold text-rose-300"
+            >
+              <Square size={14} /> Parar gravação · {recSecs}s
+            </button>
+          ) : (
+            <button
+              onClick={startRec}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-ink-700 bg-ink-900 py-2.5 text-sm font-bold text-zinc-200 hover:border-emerald-500/40 hover:text-white"
+            >
+              <Mic size={16} className="text-emerald-400" /> Gravar áudio
+            </button>
+          )}
+          <p className="mt-1.5 text-[11px] text-zinc-500">
+            Com áudio, o script é enviado como <b>nota de voz</b> — chega como se você
+            tivesse gravado na hora.
+          </p>
+        </div>
       </div>
 
       <style jsx>{`

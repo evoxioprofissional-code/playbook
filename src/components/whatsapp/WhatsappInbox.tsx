@@ -283,6 +283,16 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     setText((prev) => (prev.trim() ? `${prev}\n${t}` : t));
   }
 
+  // Envia uma nota de voz (áudio de script) pelo número da conversa.
+  async function sendAudioRaw(base64: string) {
+    if (!active || !base64 || sending) return;
+    setSending(true);
+    optimistic("🎤 Áudio");
+    await waSendMedia({ number: active.jid, kind: "audio", media: base64 });
+    setSending(false);
+    reload();
+  }
+
   async function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -712,6 +722,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                 contactName={chatLabel(active)}
                 onInsert={insertText}
                 onSend={sendRaw}
+                onSendAudio={sendAudioRaw}
               />
             </>
           )}
