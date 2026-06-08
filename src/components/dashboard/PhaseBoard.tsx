@@ -25,7 +25,7 @@ import {
 import { monthInfo, dayKey, slotCount } from "@/lib/period";
 import Modal from "@/components/ui/Modal";
 import { useSession } from "@/components/team/session";
-import { addLog, fetchLogs, removeLog, type TaskLog } from "@/lib/store";
+import { addLog, fetchLogs, removeLog, type TaskLog, type Area } from "@/lib/store";
 
 const SECTION_ICON: Record<Section["key"], LucideIcon> = {
   vendas: ShoppingBag,
@@ -87,10 +87,23 @@ export default function PhaseBoard() {
     return m;
   }, [mine]);
 
+  // Áreas que o funcionário vê. Gestor ou sem áreas definidas → vê todas.
+  const allowed = useMemo<Set<Area> | null>(() => {
+    if (!user || user.role === "gestor") return null;
+    if (!user.areas || user.areas.length === 0) return null;
+    return new Set(user.areas);
+  }, [user]);
+
+  const visibleSections = useCallback(
+    (phase: Phase) =>
+      phase.sections.filter((s) => !allowed || allowed.has(s.key as Area)),
+    [allowed]
+  );
+
   const phasePct = (phase: Phase) => {
     let total = 0;
     let done = 0;
-    phase.sections.forEach((s) =>
+    visibleSections(phase).forEach((s) =>
       s.tasks.forEach((t) => {
         const cap = slotCount(t);
         total += cap;
@@ -149,7 +162,7 @@ export default function PhaseBoard() {
       </div>
 
       {user && !loading && (
-        <HojePanel phase={active} mine={mine} toggle={toggle} />
+        <HojePanel phase={active} mine={mine} toggle={toggle} allowed={allowed} />
       )}
 
       <PhaseDetail
@@ -161,6 +174,7 @@ export default function PhaseBoard() {
         approved={approved.has(active.id)}
         onApprove={() => setApproved((p) => new Set(p).add(active.id))}
         pct={phasePct(active)}
+        sections={visibleSections(active)}
       />
     </div>
   );
@@ -170,17 +184,19 @@ function HojePanel({
   phase,
   mine,
   toggle,
+  allowed,
 }: {
   phase: Phase;
   mine: Set<string>;
   toggle: (taskId: string, slot: string) => void;
+  allowed: Set<Area> | null;
 }) {
-  const { year, month, days, todayDay } = monthInfo();
+  const { year, month, todayDay } = monthInfo();
   const today = dayKey(year, month, todayDay);
 
-  const daily = phase.sections.flatMap((s) =>
-    s.tasks.filter((t) => t.cadence === "daily")
-  );
+  const daily = phase.sections
+    .filter((s) => !allowed || allowed.has(s.key as Area))
+    .flatMap((s) => s.tasks.filter((t) => t.cadence === "daily"));
   if (daily.length === 0) return null;
 
   const pending = daily.filter((t) => !mine.has(slotKey(t.id, today)));
@@ -250,6 +266,7 @@ function PhaseDetail({
   approved,
   onApprove,
   pct,
+  sections,
 }: {
   phase: Phase;
   mine: Set<string>;
@@ -259,6 +276,7 @@ function PhaseDetail({
   approved: boolean;
   onApprove: () => void;
   pct: number;
+  sections: Section[];
 }) {
   const Icon = phase.icon;
   return (
@@ -305,7 +323,7 @@ function PhaseDetail({
 
       {/* Seções */}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        {phase.sections.map((section) => (
+        {sections.map((section) => (
           <SectionBlock
             key={section.key}
             phaseId={phase.id}

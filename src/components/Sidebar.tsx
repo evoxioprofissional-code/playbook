@@ -10,6 +10,7 @@ import {
   Clapperboard,
   Users,
   Smartphone,
+  ShieldCheck,
   Menu,
   X,
 } from "lucide-react";
@@ -22,6 +23,7 @@ const NAV = [
   { href: "/scripts", label: "Scripts", sub: "Biblioteca", icon: MessageSquareText },
   { href: "/whatsapp", label: "WhatsApp", sub: "Conexão", icon: Smartphone },
   { href: "/criativos", label: "Criativos", sub: "Social media", icon: Clapperboard },
+  { href: "/admin", label: "Admin", sub: "Equipe e funções", icon: ShieldCheck },
 ];
 
 export default function Sidebar() {

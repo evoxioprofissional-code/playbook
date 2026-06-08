@@ -2,11 +2,21 @@ import { supabase, isSupabaseEnabled } from "./supabase";
 
 export type Role = "vendedor" | "gestor";
 
+/** Áreas do playbook que um funcionário cobre. Vazio/null = vê todas. */
+export type Area = "vendas" | "instagram" | "criativos";
+
+export const AREAS: { key: Area; label: string }[] = [
+  { key: "vendas", label: "Vendas" },
+  { key: "instagram", label: "Instagram" },
+  { key: "criativos", label: "Criativos" },
+];
+
 export type Employee = {
   id: string;
   name: string;
   pin: string;
   role: Role;
+  areas?: Area[] | null;
 };
 
 /**
@@ -51,12 +61,34 @@ export async function fetchEmployees(): Promise<Employee[]> {
   if (supabase) {
     const { data, error } = await supabase
       .from("employees")
-      .select("id, name, pin, role")
+      .select("id, name, pin, role, areas")
       .order("role", { ascending: false })
       .order("name");
     if (!error && data?.length) return data as Employee[];
   }
   return DEFAULT_EMPLOYEES;
+}
+
+export async function saveEmployee(
+  emp: Partial<Employee> & { name: string; pin: string; role: Role }
+): Promise<{ ok: boolean; error?: string }> {
+  if (!supabase) return { ok: false, error: "Supabase não conectado." };
+  const payload = {
+    name: emp.name.trim(),
+    pin: emp.pin.trim(),
+    role: emp.role,
+    areas: emp.areas && emp.areas.length ? emp.areas : null,
+  };
+  const res = emp.id
+    ? await supabase.from("employees").update(payload).eq("id", emp.id)
+    : await supabase.from("employees").insert(payload);
+  return res.error ? { ok: false, error: res.error.message } : { ok: true };
+}
+
+export async function deleteEmployee(id: string): Promise<{ ok: boolean; error?: string }> {
+  if (!supabase) return { ok: false, error: "Supabase não conectado." };
+  const { error } = await supabase.from("employees").delete().eq("id", id);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 export async function fetchLogs(): Promise<TaskLog[]> {

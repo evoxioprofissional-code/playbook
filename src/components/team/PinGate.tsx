@@ -43,7 +43,12 @@ export default function PinGate({
   useEffect(() => {
     if (!selected || pin.length !== 4) return;
     if (pin === selected.pin) {
-      login({ id: selected.id, name: selected.name, role: selected.role });
+      login({
+        id: selected.id,
+        name: selected.name,
+        role: selected.role,
+        areas: selected.areas ?? null,
+      });
       close();
     } else {
       setError(true);

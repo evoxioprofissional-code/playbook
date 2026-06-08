@@ -7,12 +7,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Role } from "@/lib/store";
+import type { Role, Area } from "@/lib/store";
 
 export type SessionUser = {
   id: string;
   name: string;
   role: Role;
+  areas?: Area[] | null;
 };
 
 type SessionCtx = {
