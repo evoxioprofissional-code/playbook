@@ -54,8 +54,14 @@ create table if not exists leads (
   value       numeric not null default 0,
   column_id   text not null default 'novo',
   hot         boolean not null default false,
-  created_at  timestamptz not null default now()
+  created_at  timestamptz not null default now(),
+  -- conversa do WhatsApp de origem (quando o lead entrou automaticamente).
+  wa_jid      text
 );
+
+-- Cada conversa do WhatsApp vira no máximo 1 lead. NULLs são distintos no
+-- Postgres, então leads manuais (wa_jid NULL) não conflitam entre si.
+create unique index if not exists idx_leads_wa_jid on leads (wa_jid);
 
 create table if not exists creatives (
   id          uuid primary key default gen_random_uuid(),

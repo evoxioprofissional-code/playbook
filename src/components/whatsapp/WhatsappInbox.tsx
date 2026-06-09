@@ -33,6 +33,7 @@ import {
   type WaMessage,
 } from "@/lib/wa";
 import { fetchAliases, setAlias } from "@/lib/waAliases";
+import { syncWhatsappLeads } from "@/lib/kanban";
 
 // Cache de mídia já baixada (id da msg -> data URL), evita rebaixar no polling.
 const mediaCache = new Map<string, string>();
@@ -151,6 +152,8 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const chunksRef = useRef<Blob[]>([]);
   const cancelRef = useRef(false);
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const aliasesRef = useRef<Record<string, string>>({});
+  const lastLeadSyncRef = useRef(0);
 
   // Lista de conversas + atualização automática.
   useEffect(() => {
@@ -160,6 +163,11 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
       if (alive && r.chats) {
         setChats(r.chats);
         setLoadingChats(false);
+        // Toda conversa nova vira lead no CRM (no máx. 1x a cada 30s).
+        if (Date.now() - lastLeadSyncRef.current > 30000) {
+          lastLeadSyncRef.current = Date.now();
+          syncWhatsappLeads(r.chats, aliasesRef.current).catch(() => {});
+        }
       }
     };
     load();
@@ -209,8 +217,16 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
 
   // Carrega os apelidos das conversas (nomes que a equipe deu).
   useEffect(() => {
-    fetchAliases().then(setAliases);
+    fetchAliases().then((a) => {
+      setAliases(a);
+      aliasesRef.current = a;
+    });
   }, []);
+
+  // Mantém o ref sincronizado pra sincronização de leads usar o nome certo.
+  useEffect(() => {
+    aliasesRef.current = aliases;
+  }, [aliases]);
 
   const label = (c: { name: string | null; number: string; jid: string }) =>
     chatLabel(c, aliases);

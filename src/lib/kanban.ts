@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import type { WaChat } from "./wa";
 
 export type ColumnId =
   | "novo"
@@ -18,6 +19,7 @@ export type Lead = {
   column: ColumnId;
   hot?: boolean;
   createdAt: string; // ISO — entrada do lead, base do SLA
+  waJid?: string | null; // conversa do WhatsApp de origem (se veio de lá)
 };
 
 export type Column = {
@@ -70,6 +72,7 @@ type LeadRow = {
   column_id: ColumnId;
   hot: boolean;
   created_at: string;
+  wa_jid?: string | null;
 };
 
 function rowToLead(r: LeadRow): Lead {
@@ -83,6 +86,7 @@ function rowToLead(r: LeadRow): Lead {
     column: r.column_id,
     hot: r.hot,
     createdAt: r.created_at,
+    waJid: r.wa_jid ?? null,
   };
 }
 
@@ -119,6 +123,56 @@ export async function createLead(l: {
     .single();
   if (error || !data) return null;
   return rowToLead(data as LeadRow);
+}
+
+/** Nome do lead a partir da conversa (usa o apelido da equipe, se houver). */
+function leadNameFromChat(c: WaChat, aliases: Record<string, string>): string {
+  if (aliases[c.jid]) return aliases[c.jid];
+  if (c.name) return c.name;
+  if (c.jid.endsWith("@lid")) return `Contato ${c.number.slice(-4)}`;
+  return `+${c.number}`;
+}
+
+/**
+ * Cria um lead na coluna "Novo" para cada conversa de WhatsApp que ainda não
+ * virou lead. Deduplica por `wa_jid` (índice único) — pode ser chamada várias
+ * vezes sem criar duplicados. Retorna só os leads recém-criados.
+ */
+export async function syncWhatsappLeads(
+  chats: WaChat[],
+  aliases: Record<string, string> = {}
+): Promise<Lead[]> {
+  if (!supabase || !chats.length) return [];
+
+  // Quais conversas já são leads.
+  const { data: ex } = await supabase
+    .from("leads")
+    .select("wa_jid")
+    .not("wa_jid", "is", null);
+  const known = new Set((ex || []).map((r: { wa_jid: string | null }) => r.wa_jid));
+
+  const novos = chats.filter((c) => c.jid && !known.has(c.jid));
+  if (!novos.length) return [];
+
+  const rows = novos.map((c) => ({
+    name: leadNameFromChat(c, aliases),
+    company: "Via WhatsApp",
+    type: "Revenda" as const,
+    qty: 100,
+    value: 0,
+    column_id: "novo" as ColumnId,
+    hot: false,
+    wa_jid: c.jid,
+    created_at: c.time || new Date().toISOString(),
+  }));
+
+  // upsert ignorando conflito de wa_jid (à prova de corrida entre abas).
+  const { data, error } = await supabase
+    .from("leads")
+    .upsert(rows, { onConflict: "wa_jid", ignoreDuplicates: true })
+    .select();
+  if (error || !data) return [];
+  return (data as LeadRow[]).map(rowToLead);
 }
 
 export async function moveLead(id: string, column: ColumnId): Promise<void> {

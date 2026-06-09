@@ -12,7 +12,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Flame, GripVertical, Plus, Timer, Target } from "lucide-react";
+import { Flame, GripVertical, Plus, Timer, Target, MessageCircle } from "lucide-react";
 import {
   COLUMNS,
   META_MES,
@@ -22,9 +22,12 @@ import {
   fetchLeads,
   createLead,
   moveLead,
+  syncWhatsappLeads,
   type ColumnId,
   type Lead,
 } from "@/lib/kanban";
+import { waChats } from "@/lib/wa";
+import { fetchAliases } from "@/lib/waAliases";
 import Modal from "@/components/ui/Modal";
 
 export default function KanbanBoard() {
@@ -52,6 +55,30 @@ export default function KanbanBoard() {
     });
     return () => {
       alive = false;
+    };
+  }, []);
+
+  // Puxa do WhatsApp: toda conversa nova vira lead na coluna "Novo".
+  // Roda ao abrir e a cada 25s (idempotente — deduplica por wa_jid).
+  useEffect(() => {
+    let alive = true;
+    const run = async () => {
+      const { chats } = await waChats();
+      if (!alive || !chats?.length) return;
+      const aliases = await fetchAliases();
+      const created = await syncWhatsappLeads(chats, aliases);
+      if (alive && created.length) {
+        setLeads((prev) => {
+          const have = new Set(prev.map((l) => l.id));
+          return [...prev, ...created.filter((c) => !have.has(c.id))];
+        });
+      }
+    };
+    run();
+    const id = setInterval(run, 25000);
+    return () => {
+      alive = false;
+      clearInterval(id);
     };
   }, []);
 
@@ -308,6 +335,11 @@ function LeadCard({
         <span className="rounded-md bg-ink-700 px-1.5 py-0.5 text-[10px] font-bold text-zinc-300">
           {lead.qty} pç
         </span>
+        {lead.waJid && (
+          <span className="flex items-center gap-0.5 rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">
+            <MessageCircle size={10} /> WhatsApp
+          </span>
+        )}
         {lead.hot && (
           <span className="flex items-center gap-0.5 rounded-md bg-flame-500/15 px-1.5 py-0.5 text-[10px] font-bold text-flame-400">
             <Flame size={10} /> Quente
