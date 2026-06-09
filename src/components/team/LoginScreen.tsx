@@ -41,8 +41,8 @@ export default function LoginScreen({ admin = false }: { admin?: boolean }) {
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-flame-500 to-gold-500 text-lg font-black text-black shadow-glow">
             J2A
           </div>
-          <p className="mt-3 text-lg font-extrabold uppercase tracking-wide text-white">
-            Sales Machine
+          <p className="mt-3 text-xl font-extrabold tracking-wide text-white">
+            sales j2a
           </p>
           <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-widest text-flame-400">
             {admin && <ShieldCheck size={12} />}

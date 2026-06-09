@@ -113,11 +113,8 @@ function Brand() {
         J2A
       </div>
       <div className="leading-tight">
-        <p className="text-sm font-extrabold uppercase tracking-wide text-white">
-          Sales Machine
-        </p>
-        <p className="text-[11px] font-medium uppercase tracking-widest text-flame-400">
-          Playbook · CRM
+        <p className="text-base font-extrabold tracking-wide text-white">
+          sales j2a
         </p>
       </div>
     </div>
