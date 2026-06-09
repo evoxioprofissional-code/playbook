@@ -148,6 +148,11 @@ export async function waReset(): Promise<{ ok?: boolean }> {
   return r.json();
 }
 
+export async function waFullSync(): Promise<{ ok?: boolean }> {
+  const r = await fetch("/api/wa/fullsync", { method: "POST", headers: headers() });
+  return r.json();
+}
+
 /** Fallback: link wa.me (abre o WhatsApp com a mensagem pronta). */
 export function waLink(phone: string | undefined, text: string) {
   const digits = (phone || "").replace(/\D/g, "");

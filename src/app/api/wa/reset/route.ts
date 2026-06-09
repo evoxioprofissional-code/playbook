@@ -16,6 +16,7 @@ export async function POST(req: Request) {
       instanceName: cfg.instance,
       qrcode: true,
       integration: "WHATSAPP-BAILEYS",
+      syncFullHistory: true, // importa o histórico completo ao conectar
     }),
   });
   return Response.json({ ok: true });

@@ -17,6 +17,8 @@ import {
   Check,
   FileText,
   X,
+  Pencil,
+  History,
 } from "lucide-react";
 import ScriptsDrawer from "./ScriptsDrawer";
 import {
@@ -26,9 +28,11 @@ import {
   waSendMedia,
   waMedia,
   waLogout,
+  waFullSync,
   type WaChat,
   type WaMessage,
 } from "@/lib/wa";
+import { fetchAliases, setAlias } from "@/lib/waAliases";
 
 // Cache de mídia já baixada (id da msg -> data URL), evita rebaixar no polling.
 const mediaCache = new Map<string, string>();
@@ -84,7 +88,11 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-function chatLabel(c: { name: string | null; number: string; jid: string }) {
+function chatLabel(
+  c: { name: string | null; number: string; jid: string },
+  aliases?: Record<string, string>
+) {
+  if (aliases && aliases[c.jid]) return aliases[c.jid];
   if (c.name) return c.name;
   if (c.jid.endsWith("@lid")) return `Contato ${c.number.slice(-4)}`;
   return `+${c.number}`;
@@ -134,6 +142,9 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const [newReply, setNewReply] = useState("");
   const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
   const [selectedMic, setSelectedMic] = useState<string>("default");
+  const [aliases, setAliases] = useState<Record<string, string>>({});
+  const [renaming, setRenaming] = useState(false);
+  const [renameVal, setRenameVal] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const recRef = useRef<MediaRecorder | null>(null);
@@ -195,6 +206,34 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
       /* ignora */
     }
   }, []);
+
+  // Carrega os apelidos das conversas (nomes que a equipe deu).
+  useEffect(() => {
+    fetchAliases().then(setAliases);
+  }, []);
+
+  const label = (c: { name: string | null; number: string; jid: string }) =>
+    chatLabel(c, aliases);
+
+  // Salva/limpa o apelido da conversa aberta.
+  async function saveRename() {
+    if (!active) return;
+    const v = renameVal.trim();
+    setAliases((m) => {
+      const next = { ...m };
+      if (v) next[active.jid] = v;
+      else delete next[active.jid];
+      return next;
+    });
+    setRenaming(false);
+    await setAlias(active.jid, v);
+  }
+
+  function startRename() {
+    if (!active) return;
+    setRenameVal(aliases[active.jid] || active.name || "");
+    setRenaming(true);
+  }
 
   function saveQuick(list: string[]) {
     setQuickReplies(list);
@@ -353,16 +392,28 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     onDisconnect();
   }
 
+  async function fullSync() {
+    if (
+      !confirm(
+        "Para puxar TODAS as conversas, o WhatsApp precisa ser reconectado (vai pedir o QR de novo). Suas conversas atuais continuam salvas. Continuar?"
+      )
+    )
+      return;
+    await waFullSync();
+    onDisconnect();
+  }
+
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return chats;
     const digits = s.replace(/\D/g, "");
     return chats.filter(
       (c) =>
+        (aliases[c.jid] || "").toLowerCase().includes(s) ||
         (c.name || "").toLowerCase().includes(s) ||
         (digits && c.number.includes(digits))
     );
-  }, [chats, q]);
+  }, [chats, q, aliases]);
 
   // Radar: separa quem precisa de ação pela última mensagem (quem falou + há quanto tempo).
   const radar = useMemo(() => {
@@ -386,6 +437,15 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     recuperacao.sort(byOld);
     return { responder, followup, recuperacao, total: responder.length + followup.length + recuperacao.length };
   }, [chats]);
+
+  // Conversa sem nome real (nem apelido) → mostra dica pra identificar.
+  const unnamed = active ? !aliases[active.jid] && !active.name : false;
+
+  // 1ª mensagem que o cliente mandou (ajuda a identificar quem é).
+  const firstInbound = useMemo(() => {
+    const m = messages.find((x) => !x.fromMe && x.kind === "text" && x.text.trim());
+    return m?.text.trim() || "";
+  }, [messages]);
 
   const openChat = (c: WaChat) => {
     setActive(c);
@@ -430,16 +490,25 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
           </button>
         </div>
 
-        <button
-          onClick={disconnect}
-          className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-rose-300 ring-1 ring-ink-700 hover:text-rose-200"
-        >
-          <Power size={14} /> <span className="hidden sm:inline">Desconectar</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fullSync}
+            title="Puxar todas as conversas (reconecta o WhatsApp)"
+            className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-zinc-300 ring-1 ring-ink-700 hover:text-flame-400"
+          >
+            <History size={14} /> <span className="hidden sm:inline">Histórico completo</span>
+          </button>
+          <button
+            onClick={disconnect}
+            className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-rose-300 ring-1 ring-ink-700 hover:text-rose-200"
+          >
+            <Power size={14} /> <span className="hidden sm:inline">Desconectar</span>
+          </button>
+        </div>
       </div>
 
       {view === "radar" ? (
-        <RadarView radar={radar} onOpen={openChat} />
+        <RadarView radar={radar} onOpen={openChat} aliases={aliases} />
       ) : (
       <div className="flex flex-1 overflow-hidden">
         {/* Lista de conversas */}
@@ -475,12 +544,12 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                     }`}
                   >
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-zinc-200">
-                      {initials(c.name, c.number)}
+                      {initials(label(c), c.number)}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-bold text-white">
-                          {chatLabel(c)}
+                          {label(c)}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}
@@ -523,20 +592,74 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                   <ArrowLeft size={18} />
                 </button>
                 <span className="flex h-9 w-9 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-zinc-200">
-                  {initials(active.name, active.number)}
+                  {initials(label(active), active.number)}
                 </span>
-                <div className="leading-tight">
-                  <p className="text-sm font-bold text-white">
-                    {chatLabel(active)}
-                  </p>
-                  {!active.jid.endsWith("@lid") && (
-                    <p className="text-[11px] text-zinc-500">+{active.number}</p>
-                  )}
-                </div>
+                {renaming ? (
+                  <div className="flex flex-1 items-center gap-2">
+                    <input
+                      autoFocus
+                      value={renameVal}
+                      onChange={(e) => setRenameVal(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveRename();
+                        if (e.key === "Escape") setRenaming(false);
+                      }}
+                      placeholder="Nome do contato…"
+                      className="min-w-0 flex-1 rounded-lg border border-ink-700 bg-ink-950 px-2.5 py-1.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-flame-500"
+                    />
+                    <button
+                      onClick={saveRename}
+                      title="Salvar nome"
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-flame-500 text-black hover:bg-flame-400"
+                    >
+                      <Check size={16} />
+                    </button>
+                    <button
+                      onClick={() => setRenaming(false)}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-ink-800 text-zinc-400 ring-1 ring-ink-700 hover:text-white"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="leading-tight">
+                      <p className="text-sm font-bold text-white">{label(active)}</p>
+                      {!active.jid.endsWith("@lid") && (
+                        <p className="text-[11px] text-zinc-500">+{active.number}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={startRename}
+                      title="Dar um nome a este contato"
+                      className="ml-1 flex h-7 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-zinc-500 hover:bg-ink-800 hover:text-flame-400"
+                    >
+                      <Pencil size={13} /> {aliases[active.jid] ? "Renomear" : "Dar nome"}
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* Mensagens */}
               <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
+                {unnamed && !renaming && (
+                  <div className="mb-3 rounded-xl border border-gold-500/25 bg-gold-500/10 px-3 py-2.5 text-xs text-zinc-300">
+                    <p className="font-bold text-gold-300">Contato sem nome (privacidade do WhatsApp)</p>
+                    {firstInbound ? (
+                      <p className="mt-1">
+                        1ª mensagem do cliente: <span className="text-zinc-100">“{firstInbound.slice(0, 120)}”</span>
+                      </p>
+                    ) : (
+                      <p className="mt-1">O WhatsApp não informou o nome deste contato.</p>
+                    )}
+                    <button
+                      onClick={startRename}
+                      className="mt-1.5 inline-flex items-center gap-1 font-semibold text-flame-400 hover:text-flame-300"
+                    >
+                      <Pencil size={12} /> Dar um nome a este contato
+                    </button>
+                  </div>
+                )}
                 {loadingMsgs && messages.length === 0 ? (
                   <p className="py-6 text-center text-sm text-zinc-500">Carregando mensagens…</p>
                 ) : (
@@ -782,7 +905,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
               <ScriptsDrawer
                 open={scriptsOpen}
                 onClose={() => setScriptsOpen(false)}
-                contactName={chatLabel(active)}
+                contactName={label(active)}
                 onInsert={insertText}
                 onSend={sendRaw}
                 onSendAudio={sendAudioRaw}
@@ -799,6 +922,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
 function RadarView({
   radar,
   onOpen,
+  aliases,
 }: {
   radar: {
     responder: WaChat[];
@@ -807,7 +931,9 @@ function RadarView({
     total: number;
   };
   onOpen: (c: WaChat) => void;
+  aliases: Record<string, string>;
 }) {
+  const label = (c: WaChat) => chatLabel(c, aliases);
   const groups = [
     {
       key: "responder",
@@ -861,12 +987,12 @@ function RadarView({
                     className="flex items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/80 px-4 py-3 text-left transition hover:border-flame-500/40"
                   >
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink-700 text-xs font-bold text-zinc-200">
-                      {chatLabel(c).slice(0, 2).toUpperCase()}
+                      {label(c).slice(0, 2).toUpperCase()}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
                         <span className="truncate text-sm font-bold text-white">
-                          {chatLabel(c)}
+                          {label(c)}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}

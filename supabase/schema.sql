@@ -68,6 +68,18 @@ create table if not exists creatives (
 );
 
 -- ─────────────────────────────────────────────────────────────
+-- WhatsApp — apelidos das conversas.
+-- O WhatsApp esconde nome/telefone de quem não está salvo (privacidade @lid).
+-- A equipe renomeia a conversa aqui e o nome aparece pra todos.
+-- jid = identificador da conversa (ex.: '55…@s.whatsapp.net' ou '…@lid').
+-- ─────────────────────────────────────────────────────────────
+create table if not exists wa_aliases (
+  jid         text primary key,
+  name        text not null,
+  updated_at  timestamptz not null default now()
+);
+
+-- ─────────────────────────────────────────────────────────────
 -- RLS — ferramenta interna de equipe pequena.
 -- Liberamos leitura/escrita pela anon key. Para produção pública,
 -- troque por Supabase Auth + policies por usuário.
@@ -76,8 +88,10 @@ alter table employees  enable row level security;
 alter table task_logs  enable row level security;
 alter table leads      enable row level security;
 alter table creatives  enable row level security;
+alter table wa_aliases enable row level security;
 
 create policy "anon full employees"  on employees  for all using (true) with check (true);
 create policy "anon full task_logs"  on task_logs  for all using (true) with check (true);
 create policy "anon full leads"      on leads      for all using (true) with check (true);
 create policy "anon full creatives"  on creatives  for all using (true) with check (true);
+create policy "anon full wa_aliases" on wa_aliases for all using (true) with check (true);
