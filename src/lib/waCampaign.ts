@@ -19,6 +19,7 @@ export type Campaign = {
   id: string;
   message: string;
   interval_min: number;
+  interval_sec: number;
   status: "running" | "done" | "canceled";
   created_at: string;
 };
@@ -29,7 +30,8 @@ export type CampaignState = {
   sent: number;
   errors: number;
   pending: number;
-  nextInMin: number | null; // minutos até o próximo envio (0 = já vai)
+  intervalSec: number;
+  nextInSec: number | null; // segundos até o próximo envio (0 = já vai)
 };
 
 /** Preenche {cliente} pelo nome do contato no momento do envio. */
@@ -40,7 +42,7 @@ function fillClient(message: string, name: string | null) {
 /** Cria a campanha e os alvos (deduplica por jid). */
 export async function createCampaign(input: {
   message: string;
-  intervalMin: number;
+  intervalSec: number;
   targets: { jid: string; name?: string | null }[];
 }): Promise<{ ok: boolean; error?: string; id?: string }> {
   if (!isSupabaseEnabled || !supabase) return { ok: false, error: "Supabase não conectado." };
@@ -49,9 +51,14 @@ export async function createCampaign(input: {
   const targets = input.targets.filter((t) => t.jid && !seen.has(t.jid) && seen.add(t.jid));
   if (!targets.length) return { ok: false, error: "Nenhum contato para recuperar." };
 
+  const intervalSec = Math.max(1, Math.round(input.intervalSec));
   const { data: camp, error } = await supabase
     .from("wa_campaigns")
-    .insert({ message: input.message, interval_min: Math.max(1, input.intervalMin) })
+    .insert({
+      message: input.message,
+      interval_sec: intervalSec,
+      interval_min: Math.max(1, Math.round(intervalSec / 60)),
+    })
     .select()
     .single();
   if (error || !camp) return { ok: false, error: error?.message || "Falha ao criar campanha." };
@@ -60,7 +67,13 @@ export async function createCampaign(input: {
   const { error: te } = await supabase.from("wa_campaign_targets").insert(rows);
   if (te) return { ok: false, error: te.message };
 
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("j2a-campaign-started"));
   return { ok: true, id: camp.id };
+}
+
+/** Intervalo efetivo da campanha em segundos (com fallback p/ registros antigos). */
+function campaignSec(c: Campaign) {
+  return c.interval_sec || (c.interval_min || 8) * 60;
 }
 
 /** Estado da campanha em andamento (pra mostrar progresso). */
@@ -87,11 +100,12 @@ export async function fetchActiveCampaign(): Promise<CampaignState | null> {
   const lastSent = targets
     .filter((t) => t.sent_at)
     .reduce((m, t) => Math.max(m, new Date(t.sent_at as string).getTime()), 0);
-  const gapMs = campaign.interval_min * 60_000;
-  const nextInMin =
-    pending === 0 ? null : !lastSent ? 0 : Math.max(0, Math.ceil((lastSent + gapMs - Date.now()) / 60_000));
+  const intervalSec = campaignSec(campaign);
+  const gapMs = intervalSec * 1000;
+  const nextInSec =
+    pending === 0 ? null : !lastSent ? 0 : Math.max(0, Math.ceil((lastSent + gapMs - Date.now()) / 1000));
 
-  return { campaign, total: targets.length, sent, errors, pending, nextInMin };
+  return { campaign, total: targets.length, sent, errors, pending, intervalSec, nextInSec };
 }
 
 export async function cancelCampaign(id: string): Promise<void> {
@@ -138,7 +152,7 @@ export async function tickCampaign(): Promise<void> {
   const lastSent = targets
     .filter((t) => t.sent_at)
     .reduce((m, t) => Math.max(m, new Date(t.sent_at as string).getTime()), 0);
-  if (lastSent && Date.now() - lastSent < camp.interval_min * 60_000) return;
+  if (lastSent && Date.now() - lastSent < campaignSec(camp) * 1000) return;
 
   // Claim atômico: só uma aba consegue mudar de 'pending' p/ 'sending'.
   const next = pending[0];

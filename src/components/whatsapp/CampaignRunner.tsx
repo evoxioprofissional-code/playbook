@@ -20,32 +20,47 @@ export default function CampaignRunner() {
   useEffect(() => {
     if (!isSupabaseEnabled) return;
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const run = async () => {
       if (busy.current) return;
       busy.current = true;
+      let active: CampaignState | null = null;
       try {
         await tickCampaign();
-        const s = await fetchActiveCampaign();
-        if (alive) setState(s);
+        active = await fetchActiveCampaign();
+        if (alive) setState(active);
       } catch {
         /* silencioso */
       } finally {
         busy.current = false;
       }
+      if (!alive) return;
+      // Verifica com mais frequência quando há campanha rodando (suporta
+      // intervalos curtos em segundos); devagar quando está ocioso.
+      const delay = active ? Math.min(15_000, Math.max(5_000, (active.intervalSec * 1000) / 4)) : 45_000;
+      timer = setTimeout(run, delay);
     };
 
+    const wake = () => run();
+    window.addEventListener("j2a-campaign-started", wake);
     run();
-    const id = setInterval(run, 60_000); // 1x por minuto
     return () => {
       alive = false;
-      clearInterval(id);
+      if (timer) clearTimeout(timer);
+      window.removeEventListener("j2a-campaign-started", wake);
     };
   }, []);
 
   if (!state) return null;
 
-  const { sent, errors, total, pending, nextInMin } = state;
+  const { sent, errors, total, pending, nextInSec } = state;
+  const nextLabel =
+    nextInSec == null
+      ? ""
+      : nextInSec < 60
+        ? `~${nextInSec}s`
+        : `~${Math.ceil(nextInSec / 60)} min`;
 
   async function cancel() {
     if (!state) return;
@@ -80,9 +95,7 @@ export default function CampaignRunner() {
         {pending > 0 ? (
           <>
             <Loader2 size={11} className="animate-spin text-flame-400" />
-            {nextInMin && nextInMin > 0
-              ? `Próximo em ~${nextInMin} min`
-              : "Enviando o próximo…"}
+            {nextInSec && nextInSec > 0 ? `Próximo em ${nextLabel}` : "Enviando o próximo…"}
           </>
         ) : (
           "Concluindo…"

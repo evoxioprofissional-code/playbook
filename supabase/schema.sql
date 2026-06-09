@@ -103,10 +103,13 @@ create table if not exists app_config (
 create table if not exists wa_campaigns (
   id           uuid primary key default gen_random_uuid(),
   message      text not null,
-  interval_min integer not null default 8,
+  interval_min integer not null default 8,        -- legado (mantido p/ compatibilidade)
+  interval_sec integer not null default 480,       -- intervalo real entre envios, em segundos
   status       text not null default 'running' check (status in ('running','done','canceled')),
   created_at   timestamptz not null default now()
 );
+-- migração p/ bancos já criados:
+alter table wa_campaigns add column if not exists interval_sec integer not null default 480;
 
 create table if not exists wa_campaign_targets (
   id           uuid primary key default gen_random_uuid(),

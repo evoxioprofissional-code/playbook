@@ -1067,6 +1067,14 @@ function RadarView({
   );
 }
 
+// Formata uma duração em segundos: "45s", "8 min", "1h20".
+function fmtDur(totalSec: number) {
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.round(totalSec / 60);
+  if (min < 60) return `${min} min`;
+  return `${Math.floor(min / 60)}h${String(min % 60).padStart(2, "0")}`;
+}
+
 function RecoverModal({
   targets,
   nameOf,
@@ -1081,7 +1089,8 @@ function RecoverModal({
   onClose: () => void;
 }) {
   const [message, setMessage] = useState("");
-  const [interval, setIntervalMin] = useState(8);
+  const [intervalVal, setIntervalVal] = useState(8);
+  const [unit, setUnit] = useState<"min" | "seg">("min");
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState("");
   const [running, setRunning] = useState<boolean | null>(null);
@@ -1091,9 +1100,9 @@ function RecoverModal({
   }, []);
 
   const n = targets.length;
-  const mins = Math.max(0, (n - 1) * interval);
-  const durLabel =
-    mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
+  const intervalSec = unit === "min" ? intervalVal * 60 : intervalVal;
+  const everyLabel = unit === "min" ? `${intervalVal} min` : `${intervalVal}s`;
+  const durLabel = fmtDur(Math.max(0, (n - 1) * intervalSec));
 
   async function launch() {
     if (!message.trim() || launching) return;
@@ -1101,14 +1110,14 @@ function RecoverModal({
     setError("");
     const r = await createCampaign({
       message: message.trim(),
-      intervalMin: interval,
+      intervalSec,
       targets: targets.map((c) => ({ jid: c.jid, name: nameOf(c) })),
     });
     setLaunching(false);
     if (r.ok) {
       onClose();
       alert(
-        `Recuperação iniciada! ${n} contatos — 1 mensagem a cada ${interval} min. Pode fechar essa tela; o envio continua enquanto o app estiver aberto.`
+        `Recuperação iniciada! ${n} contatos — 1 mensagem a cada ${everyLabel}. Pode fechar essa tela; o envio continua enquanto o app estiver aberto.`
       );
     } else {
       setError(r.error || "Falha ao iniciar.");
@@ -1187,24 +1196,44 @@ function RecoverModal({
             </span>
           </label>
 
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm text-zinc-300">
-              Intervalo:
+          <div>
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              Tempo entre cada envio
+            </span>
+            <div className="flex items-center gap-2">
               <input
                 type="number"
                 min={1}
-                value={interval}
-                onChange={(e) => setIntervalMin(Math.max(1, Number(e.target.value) || 1))}
-                className="w-16 rounded-lg border border-ink-700 bg-ink-950 px-2 py-1.5 text-center text-sm text-white outline-none focus:border-flame-500"
+                value={intervalVal}
+                onChange={(e) => setIntervalVal(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 rounded-lg border border-ink-700 bg-ink-950 px-2 py-2 text-center text-sm text-white outline-none focus:border-flame-500"
               />
-              min
-            </label>
+              <div className="flex items-center gap-1 rounded-lg bg-ink-800 p-1">
+                {(["min", "seg"] as const).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setUnit(u)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-bold transition ${
+                      unit === u ? "bg-flame-500 text-black" : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {u === "min" ? "minutos" : "segundos"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {unit === "seg" && (
+              <p className="mt-1 text-[11px] text-gold-400">
+                Segundos é ideal só pra testar com poucos contatos. Pra valer, use minutos
+                (8+) pra não arriscar o número.
+              </p>
+            )}
           </div>
 
           <div className="rounded-xl border border-ink-700 bg-ink-900/60 px-4 py-3 text-sm text-zinc-300">
             <p>
               <b className="text-white">{n}</b> mensagens · 1 a cada{" "}
-              <b className="text-white">{interval} min</b> · termina em ~
+              <b className="text-white">{everyLabel}</b> · termina em ~
               <b className="text-white">{durLabel}</b>.
             </p>
             <p className="mt-1 text-[11px] text-zinc-500">
