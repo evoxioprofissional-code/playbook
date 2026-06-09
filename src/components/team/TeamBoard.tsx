@@ -9,7 +9,8 @@ import {
   Trophy,
   Flame,
 } from "lucide-react";
-import { PHASES } from "@/lib/playbook";
+import { PHASES, type Phase } from "@/lib/playbook";
+import { fetchPlaybook } from "@/lib/playbookStore";
 import { slotCount, formatWhen, dayKey } from "@/lib/period";
 import {
   fetchEmployees,
@@ -19,33 +20,21 @@ import {
   type TaskLog,
 } from "@/lib/store";
 
+type TaskInfo = { label: string; tag: string; phaseId: string; slots: number };
+
 // Índice de tarefas: id -> rótulo, fase e nº de caixas (slots).
-const TASK_INDEX = new Map(
-  PHASES.flatMap((p) =>
-    p.sections.flatMap((s) =>
-      s.tasks.map(
-        (t) =>
-          [
-            t.id,
-            { label: t.label, tag: p.tag, phaseId: p.id, slots: slotCount(t) },
-          ] as const
+function buildTaskIndex(phases: Phase[]) {
+  return new Map<string, TaskInfo>(
+    phases.flatMap((p) =>
+      p.sections.flatMap((s) =>
+        s.tasks.map(
+          (t) =>
+            [t.id, { label: t.label, tag: p.tag, phaseId: p.id, slots: slotCount(t) }] as const
+        )
       )
     )
-  )
-);
-const SLOTS_PER_PHASE = new Map(
-  PHASES.map((p) => [
-    p.id,
-    p.sections.reduce(
-      (n, s) => n + s.tasks.reduce((m, t) => m + slotCount(t), 0),
-      0
-    ),
-  ])
-);
-const TOTAL_SLOTS = Array.from(SLOTS_PER_PHASE.values()).reduce(
-  (a, b) => a + b,
-  0
-);
+  );
+}
 
 // Sequência de dias seguidos com pelo menos 1 caixa diária marcada.
 function computeStreak(logs: TaskLog[]) {
@@ -66,16 +55,15 @@ function computeStreak(logs: TaskLog[]) {
   return streak;
 }
 
-// Conta logs por (employee, phase) e total, respeitando o teto de cada tarefa.
-function countByPhase(logs: TaskLog[], phaseId: string) {
+// Conta logs por funcionário, respeitando o teto de cada tarefa.
+function countDone(logs: TaskLog[], taskIndex: Map<string, TaskInfo>) {
   const perTask = new Map<string, number>();
   logs.forEach((l) => {
-    const t = TASK_INDEX.get(l.task_id);
-    if (t?.phaseId === phaseId) perTask.set(l.task_id, (perTask.get(l.task_id) || 0) + 1);
+    if (taskIndex.has(l.task_id)) perTask.set(l.task_id, (perTask.get(l.task_id) || 0) + 1);
   });
   let done = 0;
   perTask.forEach((n, id) => {
-    done += Math.min(n, TASK_INDEX.get(id)?.slots || 0);
+    done += Math.min(n, taskIndex.get(id)?.slots || 0);
   });
   return done;
 }
@@ -83,7 +71,18 @@ function countByPhase(logs: TaskLog[], phaseId: string) {
 export default function TeamBoard() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [logs, setLogs] = useState<TaskLog[]>([]);
+  const [phases, setPhases] = useState<Phase[]>(PHASES);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchPlaybook().then((p) => p.length && setPhases(p));
+  }, []);
+
+  const taskIndex = useMemo(() => buildTaskIndex(phases), [phases]);
+  const totalSlots = useMemo(
+    () => Array.from(taskIndex.values()).reduce((a, t) => a + t.slots, 0),
+    [taskIndex]
+  );
 
   const load = async () => {
     setLoading(true);
@@ -116,13 +115,13 @@ export default function TeamBoard() {
       .filter((e) => e.role === "vendedor")
       .map((emp) => {
         const mine = logs.filter((c) => c.employee_id === emp.id);
-        const done = PHASES.reduce((s, p) => s + countByPhase(mine, p.id), 0);
+        const done = countDone(mine, taskIndex);
         const streak = computeStreak(mine);
         const last = mine.map((c) => c.marked_at).sort().at(-1);
         return { emp, mine, done, streak, last };
       })
       .sort((a, b) => b.done - a.done || b.streak - a.streak);
-  }, [employees, logs]);
+  }, [employees, logs, taskIndex]);
 
   return (
     <div className="space-y-8 px-6 py-6 sm:px-8">
@@ -166,7 +165,7 @@ export default function TeamBoard() {
           ) : (
             <ul className="divide-y divide-ink-700">
               {stats.map((s, i) => {
-                const pct = Math.round((s.done / TOTAL_SLOTS) * 100);
+                const pct = totalSlots ? Math.round((s.done / totalSlots) * 100) : 0;
                 const medal = ["🥇", "🥈", "🥉"][i] ?? `${i + 1}º`;
                 return (
                   <li
@@ -199,7 +198,7 @@ export default function TeamBoard() {
                       </div>
                       <p className="mt-1 flex items-center gap-1 text-[10px] text-zinc-500">
                         <Clock size={11} />
-                        {s.last ? formatWhen(s.last) : "sem marcações"} · {s.done}/{TOTAL_SLOTS}
+                        {s.last ? formatWhen(s.last) : "sem marcações"} · {s.done}/{totalSlots}
                       </p>
                     </div>
                   </li>
@@ -225,7 +224,7 @@ export default function TeamBoard() {
           ) : (
             <ul className="divide-y divide-ink-700">
               {feed.map((c, i) => {
-                const t = TASK_INDEX.get(c.task_id);
+                const t = taskIndex.get(c.task_id);
                 return (
                   <li
                     key={`${c.task_id}-${c.employee_id}-${c.slot}-${i}`}

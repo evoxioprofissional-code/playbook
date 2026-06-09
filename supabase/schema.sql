@@ -80,6 +80,16 @@ create table if not exists wa_aliases (
 );
 
 -- ─────────────────────────────────────────────────────────────
+-- Config do app (chave/valor JSON). Hoje guarda o playbook editável
+-- (key = 'playbook'), que o gestor altera pelo /admin.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists app_config (
+  key         text primary key,
+  value       jsonb not null,
+  updated_at  timestamptz not null default now()
+);
+
+-- ─────────────────────────────────────────────────────────────
 -- RLS — ferramenta interna de equipe pequena.
 -- Liberamos leitura/escrita pela anon key. Para produção pública,
 -- troque por Supabase Auth + policies por usuário.
@@ -89,9 +99,11 @@ alter table task_logs  enable row level security;
 alter table leads      enable row level security;
 alter table creatives  enable row level security;
 alter table wa_aliases enable row level security;
+alter table app_config enable row level security;
 
 create policy "anon full employees"  on employees  for all using (true) with check (true);
 create policy "anon full task_logs"  on task_logs  for all using (true) with check (true);
 create policy "anon full leads"      on leads      for all using (true) with check (true);
 create policy "anon full creatives"  on creatives  for all using (true) with check (true);
 create policy "anon full wa_aliases" on wa_aliases for all using (true) with check (true);
+create policy "anon full app_config" on app_config for all using (true) with check (true);

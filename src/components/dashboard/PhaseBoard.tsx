@@ -18,10 +18,12 @@ import {
 import {
   PHASES,
   CREATIVE_CHECKLIST,
+  phaseIcon,
   type Phase,
   type Section,
   type Task,
 } from "@/lib/playbook";
+import { fetchPlaybook } from "@/lib/playbookStore";
 import { monthInfo, dayKey, slotCount } from "@/lib/period";
 import Modal from "@/components/ui/Modal";
 import { useSession } from "@/components/team/session";
@@ -40,8 +42,19 @@ export default function PhaseBoard() {
   const { user } = useSession();
   const [mine, setMine] = useState<Set<string>>(new Set());
   const [approved, setApproved] = useState<Set<string>>(new Set());
+  const [phases, setPhases] = useState<Phase[]>(PHASES);
   const [activeId, setActiveId] = useState<string>(PHASES[0].id);
   const [loading, setLoading] = useState(true);
+
+  // Carrega o playbook (pode ter sido editado pelo gestor no /admin).
+  useEffect(() => {
+    fetchPlaybook().then((p) => {
+      if (p.length) {
+        setPhases(p);
+        setActiveId((cur) => (p.some((x) => x.id === cur) ? cur : p[0].id));
+      }
+    });
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -113,8 +126,9 @@ export default function PhaseBoard() {
     return total ? Math.round((done / total) * 100) : 0;
   };
 
-  const active = PHASES.find((p) => p.id === activeId)!;
+  const active = phases.find((p) => p.id === activeId) || phases[0];
   const { label: monthLabel } = monthInfo();
+  if (!active) return null;
 
   return (
     <div>
@@ -135,7 +149,7 @@ export default function PhaseBoard() {
         <span className="mr-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           <CalendarDays size={14} /> {monthLabel}
         </span>
-        {PHASES.map((p) => {
+        {phases.map((p) => {
           const isActive = p.id === activeId;
           const pct = phasePct(p);
           return (
@@ -278,7 +292,7 @@ function PhaseDetail({
   pct: number;
   sections: Section[];
 }) {
-  const Icon = phase.icon;
+  const Icon = phaseIcon(phase.iconKey);
   return (
     <div className="animate-fade-in px-6 py-6 sm:px-8">
       {/* Cabeçalho da fase */}

@@ -3,9 +3,45 @@ import {
   Target,
   Split,
   Repeat,
+  Rocket,
+  TrendingUp,
+  Flame,
+  Trophy,
+  Crown,
+  Zap,
+  Users,
+  Star,
   type LucideIcon,
 } from "lucide-react";
 import type { Cadence } from "./period";
+
+/** Ícones que o gestor pode escolher para cada fase (chave serializável). */
+export const ICON_OPTIONS: { key: string; label: string; icon: LucideIcon }[] = [
+  { key: "gauge", label: "Velocímetro", icon: Gauge },
+  { key: "target", label: "Alvo", icon: Target },
+  { key: "split", label: "Divisão", icon: Split },
+  { key: "repeat", label: "Ciclo", icon: Repeat },
+  { key: "rocket", label: "Foguete", icon: Rocket },
+  { key: "trending", label: "Crescimento", icon: TrendingUp },
+  { key: "flame", label: "Chama", icon: Flame },
+  { key: "trophy", label: "Troféu", icon: Trophy },
+  { key: "crown", label: "Coroa", icon: Crown },
+  { key: "zap", label: "Raio", icon: Zap },
+  { key: "users", label: "Equipe", icon: Users },
+  { key: "star", label: "Estrela", icon: Star },
+];
+
+/** Resolve a chave do ícone para o componente (com fallback). */
+export function phaseIcon(key?: string): LucideIcon {
+  return ICON_OPTIONS.find((o) => o.key === key)?.icon || Gauge;
+}
+
+/** Chaves de seção válidas (ligadas às áreas do funcionário). */
+export const SECTION_KEYS: { key: Section["key"]; label: string }[] = [
+  { key: "vendas", label: "Vendas" },
+  { key: "instagram", label: "Instagram" },
+  { key: "criativos", label: "Criativos · Tráfego" },
+];
 
 export type Task = {
   id: string;
@@ -30,7 +66,8 @@ export type Phase = {
   tag: string;
   title: string;
   foco: string;
-  icon: LucideIcon;
+  /** Chave do ícone (ver ICON_OPTIONS). Serializável p/ salvar no banco. */
+  iconKey: string;
   metrics: { label: string; value: string }[];
   promo: { name: string; detail: string };
   sections: Section[];
@@ -43,7 +80,7 @@ export const PHASES: Phase[] = [
     tag: "Mês 1",
     title: "O Alicerce",
     foco: "Velocidade",
-    icon: Gauge,
+    iconKey: "gauge",
     metrics: [
       { label: "Resposta", value: "< 5 min" },
       { label: "Stories/dia", value: "5" },
@@ -90,7 +127,7 @@ export const PHASES: Phase[] = [
     tag: "Mês 2",
     title: "Qualificação",
     foco: "Framework BANT",
-    icon: Target,
+    iconKey: "target",
     metrics: [
       { label: "Critério", value: "BANT" },
       { label: "Stories/dia", value: "5" },
@@ -137,7 +174,7 @@ export const PHASES: Phase[] = [
     tag: "Mês 3",
     title: "Máquina Híbrida",
     foco: "SDR + Closer",
-    icon: Split,
+    iconKey: "split",
     metrics: [
       { label: "Estrutura", value: "SDR + Closer" },
       { label: "Reel/semana", value: "1" },
@@ -182,7 +219,7 @@ export const PHASES: Phase[] = [
     tag: "Mês 4",
     title: "Retenção e Escala",
     foco: "LTV",
-    icon: Repeat,
+    iconKey: "repeat",
     metrics: [
       { label: "Follow-up", value: "+72h" },
       { label: "Upsell", value: "Bucket Hat" },
