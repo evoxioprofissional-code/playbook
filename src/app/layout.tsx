@@ -3,6 +3,7 @@ import "./globals.css";
 import Sidebar from "@/components/Sidebar";
 import { SessionProvider } from "@/components/team/session";
 import AuthGate from "@/components/team/AuthGate";
+import CampaignRunner from "@/components/whatsapp/CampaignRunner";
 
 export const metadata: Metadata = {
   title: "J2A Sales Machine",
@@ -23,6 +24,7 @@ export default function RootLayout({
               <Sidebar />
               <main className="flex-1 overflow-x-hidden md:pl-0">{children}</main>
             </div>
+            <CampaignRunner />
           </AuthGate>
         </SessionProvider>
       </body>

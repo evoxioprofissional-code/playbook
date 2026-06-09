@@ -34,6 +34,11 @@ import {
 } from "@/lib/wa";
 import { fetchAliases, setAlias } from "@/lib/waAliases";
 import { syncWhatsappLeads } from "@/lib/kanban";
+import { createCampaign, fetchActiveCampaign } from "@/lib/waCampaign";
+import { useScripts } from "@/components/scripts/useScripts";
+import { fillBody, loadFieldValues } from "@/lib/scriptsStore";
+import { useSession } from "@/components/team/session";
+import Modal from "@/components/ui/Modal";
 
 // Cache de mídia já baixada (id da msg -> data URL), evita rebaixar no polling.
 const mediaCache = new Map<string, string>();
@@ -124,6 +129,9 @@ function msgTime(ts: number) {
 }
 
 export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => void }) {
+  const { user } = useSession();
+  const { scripts } = useScripts();
+  const [recoverTargets, setRecoverTargets] = useState<WaChat[] | null>(null);
   const [chats, setChats] = useState<WaChat[]>([]);
   const [active, setActive] = useState<WaChat | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
@@ -469,6 +477,11 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     setScriptsOpen(true);
   };
 
+  // Sugestão inicial da mensagem de recuperação ({cliente} é trocado por contato).
+  const recoverScripts = scripts.filter((s) => s.category === "recuperacao" && !s.audio);
+  const fillForCampaign = (body: string) =>
+    fillBody(body, { ...loadFieldValues(), vendedor: user?.name || "", cliente: "{cliente}" });
+
   return (
     <div className="flex h-[calc(100vh-89px)] flex-col">
       {/* Barra de status */}
@@ -524,7 +537,12 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
       </div>
 
       {view === "radar" ? (
-        <RadarView radar={radar} onOpen={openChat} aliases={aliases} />
+        <RadarView
+          radar={radar}
+          onOpen={openChat}
+          aliases={aliases}
+          onRecover={(list) => setRecoverTargets(list)}
+        />
       ) : (
       <div className="flex flex-1 overflow-hidden">
         {/* Lista de conversas */}
@@ -931,6 +949,16 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
         </section>
       </div>
       )}
+
+      {recoverTargets && (
+        <RecoverModal
+          targets={recoverTargets}
+          nameOf={(c) => label(c)}
+          scripts={recoverScripts}
+          fillForCampaign={fillForCampaign}
+          onClose={() => setRecoverTargets(null)}
+        />
+      )}
     </div>
   );
 }
@@ -939,6 +967,7 @@ function RadarView({
   radar,
   onOpen,
   aliases,
+  onRecover,
 }: {
   radar: {
     responder: WaChat[];
@@ -948,6 +977,7 @@ function RadarView({
   };
   onOpen: (c: WaChat) => void;
   aliases: Record<string, string>;
+  onRecover: (list: WaChat[]) => void;
 }) {
   const label = (c: WaChat) => chatLabel(c, aliases);
   const groups = [
@@ -994,6 +1024,14 @@ function RadarView({
                   {g.list.length}
                 </span>
                 <span className="ml-1 text-[11px] text-zinc-500">· {g.hint}</span>
+                {g.key === "recuperacao" && g.list.length > 0 && (
+                  <button
+                    onClick={() => onRecover(g.list)}
+                    className="ml-auto flex items-center gap-1.5 rounded-lg bg-flame-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-flame-400"
+                  >
+                    <Send size={13} /> Recuperar todos ({g.list.length})
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                 {g.list.map((c) => (
@@ -1026,6 +1064,159 @@ function RadarView({
           )
       )}
     </div>
+  );
+}
+
+function RecoverModal({
+  targets,
+  nameOf,
+  scripts,
+  fillForCampaign,
+  onClose,
+}: {
+  targets: WaChat[];
+  nameOf: (c: WaChat) => string;
+  scripts: { id: string; title: string; body: string }[];
+  fillForCampaign: (body: string) => string;
+  onClose: () => void;
+}) {
+  const [message, setMessage] = useState("");
+  const [interval, setIntervalMin] = useState(8);
+  const [launching, setLaunching] = useState(false);
+  const [error, setError] = useState("");
+  const [running, setRunning] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    fetchActiveCampaign().then((s) => setRunning(Boolean(s)));
+  }, []);
+
+  const n = targets.length;
+  const mins = Math.max(0, (n - 1) * interval);
+  const durLabel =
+    mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}`;
+
+  async function launch() {
+    if (!message.trim() || launching) return;
+    setLaunching(true);
+    setError("");
+    const r = await createCampaign({
+      message: message.trim(),
+      intervalMin: interval,
+      targets: targets.map((c) => ({ jid: c.jid, name: nameOf(c) })),
+    });
+    setLaunching(false);
+    if (r.ok) {
+      onClose();
+      alert(
+        `Recuperação iniciada! ${n} contatos — 1 mensagem a cada ${interval} min. Pode fechar essa tela; o envio continua enquanto o app estiver aberto.`
+      );
+    } else {
+      setError(r.error || "Falha ao iniciar.");
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Recuperação automática"
+      subtitle={`Enviar pra ${n} ${n === 1 ? "contato" : "contatos"} em recuperação, com intervalo de segurança.`}
+      footer={
+        running ? (
+          <button
+            onClick={onClose}
+            className="w-full rounded-xl bg-ink-700 py-2.5 text-sm font-bold text-zinc-300"
+          >
+            Entendi
+          </button>
+        ) : (
+          <button
+            onClick={launch}
+            disabled={!message.trim() || launching}
+            className={`flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-bold transition ${
+              message.trim() && !launching
+                ? "bg-flame-500 text-black hover:bg-flame-400"
+                : "cursor-not-allowed bg-ink-700 text-zinc-500"
+            }`}
+          >
+            <Send size={16} /> {launching ? "Iniciando…" : `Disparar para ${n}`}
+          </button>
+        )
+      }
+    >
+      {running ? (
+        <p className="rounded-xl border border-gold-500/30 bg-gold-500/10 px-4 py-3 text-sm text-zinc-200">
+          Já existe uma recuperação <b className="text-white">em andamento</b>. Espere
+          terminar ou pare pelo card no canto da tela antes de iniciar outra.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {scripts.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+                Usar um script de recuperação
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {scripts.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setMessage(fillForCampaign(s.body))}
+                    className="rounded-lg bg-ink-800 px-2.5 py-1.5 text-xs font-semibold text-zinc-300 ring-1 ring-ink-700 hover:text-flame-400"
+                  >
+                    {s.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+              Mensagem
+            </span>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={5}
+              placeholder="Ex.: Oi {cliente}! Passando pra avisar que abrimos um lote novo de bonés essa semana…"
+              className="w-full resize-none rounded-xl border border-ink-700 bg-ink-950 px-3 py-2.5 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-flame-500"
+            />
+            <span className="mt-1 block text-[11px] text-zinc-500">
+              <b className="text-zinc-300">{"{cliente}"}</b> é trocado automaticamente
+              pelo nome de cada contato.
+            </span>
+          </label>
+
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-zinc-300">
+              Intervalo:
+              <input
+                type="number"
+                min={1}
+                value={interval}
+                onChange={(e) => setIntervalMin(Math.max(1, Number(e.target.value) || 1))}
+                className="w-16 rounded-lg border border-ink-700 bg-ink-950 px-2 py-1.5 text-center text-sm text-white outline-none focus:border-flame-500"
+              />
+              min
+            </label>
+          </div>
+
+          <div className="rounded-xl border border-ink-700 bg-ink-900/60 px-4 py-3 text-sm text-zinc-300">
+            <p>
+              <b className="text-white">{n}</b> mensagens · 1 a cada{" "}
+              <b className="text-white">{interval} min</b> · termina em ~
+              <b className="text-white">{durLabel}</b>.
+            </p>
+            <p className="mt-1 text-[11px] text-zinc-500">
+              O envio espaçado protege o número de bloqueio. Continua enquanto o app
+              estiver aberto (pode trocar de aba).
+            </p>
+          </div>
+
+          {error && <p className="text-xs font-semibold text-rose-400">{error}</p>}
+        </div>
+      )}
+    </Modal>
   );
 }
 

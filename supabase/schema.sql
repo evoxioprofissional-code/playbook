@@ -96,6 +96,31 @@ create table if not exists app_config (
 );
 
 -- ─────────────────────────────────────────────────────────────
+-- Campanha de recuperação em massa (WhatsApp).
+-- Envia 1 mensagem a cada `interval_min` minutos pra não derrubar o número.
+-- O envio é processado pelo app (enquanto alguém estiver com ele aberto).
+-- ─────────────────────────────────────────────────────────────
+create table if not exists wa_campaigns (
+  id           uuid primary key default gen_random_uuid(),
+  message      text not null,
+  interval_min integer not null default 8,
+  status       text not null default 'running' check (status in ('running','done','canceled')),
+  created_at   timestamptz not null default now()
+);
+
+create table if not exists wa_campaign_targets (
+  id           uuid primary key default gen_random_uuid(),
+  campaign_id  uuid not null references wa_campaigns(id) on delete cascade,
+  jid          text not null,
+  name         text,
+  status       text not null default 'pending' check (status in ('pending','sending','sent','error')),
+  sent_at      timestamptz,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists idx_camp_targets on wa_campaign_targets (campaign_id);
+
+-- ─────────────────────────────────────────────────────────────
 -- RLS — ferramenta interna de equipe pequena.
 -- Liberamos leitura/escrita pela anon key. Para produção pública,
 -- troque por Supabase Auth + policies por usuário.
@@ -106,10 +131,14 @@ alter table leads      enable row level security;
 alter table creatives  enable row level security;
 alter table wa_aliases enable row level security;
 alter table app_config enable row level security;
+alter table wa_campaigns enable row level security;
+alter table wa_campaign_targets enable row level security;
 
-create policy "anon full employees"  on employees  for all using (true) with check (true);
-create policy "anon full task_logs"  on task_logs  for all using (true) with check (true);
-create policy "anon full leads"      on leads      for all using (true) with check (true);
-create policy "anon full creatives"  on creatives  for all using (true) with check (true);
-create policy "anon full wa_aliases" on wa_aliases for all using (true) with check (true);
-create policy "anon full app_config" on app_config for all using (true) with check (true);
+create policy "anon full employees"   on employees   for all using (true) with check (true);
+create policy "anon full task_logs"   on task_logs   for all using (true) with check (true);
+create policy "anon full leads"       on leads       for all using (true) with check (true);
+create policy "anon full creatives"   on creatives   for all using (true) with check (true);
+create policy "anon full wa_aliases"  on wa_aliases  for all using (true) with check (true);
+create policy "anon full app_config"  on app_config  for all using (true) with check (true);
+create policy "anon full wa_campaigns" on wa_campaigns for all using (true) with check (true);
+create policy "anon full wa_camp_tgts" on wa_campaign_targets for all using (true) with check (true);
