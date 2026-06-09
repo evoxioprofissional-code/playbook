@@ -28,9 +28,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "Falha ao buscar conversas.", detail: r.data }, { status: r.status || 500 });
   }
 
+  // Rejeita "nome" que é só número (o Evolution usa o próprio @lid como pushName).
   const clean = (n?: string | null) => {
     const v = (n || "").trim();
-    return v && v !== "Você" ? v : null;
+    if (!v || v === "Você") return null;
+    if (/^\+?\d[\d\s-]{4,}$/.test(v)) return null; // parece telefone/lid, não nome
+    return v;
   };
   const isContact = (jid: unknown): jid is string =>
     typeof jid === "string" && (jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid"));
