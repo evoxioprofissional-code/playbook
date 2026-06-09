@@ -1,3 +1,5 @@
+import { supabase } from "./supabase";
+
 export type ColumnId =
   | "novo"
   | "qualificacao"
@@ -55,6 +57,84 @@ export const SEED_LEADS: Lead[] = [
   { id: "l10", name: "Camila Rocha", company: "CR Brand", type: "Revenda", qty: 1000, value: 27000, column: "ganho", hot: true, createdAt: ago(5000) },
   { id: "l11", name: "Equipe Corrida", company: "Run Caicó", type: "Marca própria", qty: 150, value: 3900, column: "ganho", createdAt: ago(6000) },
 ];
+
+// ───────── Persistência no Supabase (tabela leads) ─────────
+
+type LeadRow = {
+  id: string;
+  name: string;
+  company: string | null;
+  type: Lead["type"];
+  qty: number;
+  value: number;
+  column_id: ColumnId;
+  hot: boolean;
+  created_at: string;
+};
+
+function rowToLead(r: LeadRow): Lead {
+  return {
+    id: r.id,
+    name: r.name,
+    company: r.company || "—",
+    type: r.type,
+    qty: r.qty,
+    value: Number(r.value),
+    column: r.column_id,
+    hot: r.hot,
+    createdAt: r.created_at,
+  };
+}
+
+export async function fetchLeads(): Promise<Lead[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("leads")
+    .select("*")
+    .order("created_at", { ascending: true });
+  if (error || !data) return [];
+  return (data as LeadRow[]).map(rowToLead);
+}
+
+export async function createLead(l: {
+  name: string;
+  company: string;
+  type: Lead["type"];
+  qty: number;
+  value: number;
+}): Promise<Lead | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      name: l.name,
+      company: l.company,
+      type: l.type,
+      qty: l.qty,
+      value: l.value,
+      column_id: "novo",
+      hot: false,
+    })
+    .select()
+    .single();
+  if (error || !data) return null;
+  return rowToLead(data as LeadRow);
+}
+
+export async function moveLead(id: string, column: ColumnId): Promise<void> {
+  if (!supabase) return;
+  await supabase.from("leads").update({ column_id: column }).eq("id", id);
+}
+
+export async function setLeadHot(id: string, hot: boolean): Promise<void> {
+  if (!supabase) return;
+  await supabase.from("leads").update({ hot }).eq("id", id);
+}
+
+export async function removeLead(id: string): Promise<void> {
+  if (!supabase) return;
+  await supabase.from("leads").delete().eq("id", id);
+}
 
 export const formatBRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });

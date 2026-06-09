@@ -14,7 +14,8 @@ export const AREAS: { key: Area; label: string }[] = [
 export type Employee = {
   id: string;
   name: string;
-  pin: string;
+  email?: string | null;
+  pin?: string | null;
   role: Role;
   areas?: Area[] | null;
 };
@@ -61,7 +62,7 @@ export async function fetchEmployees(): Promise<Employee[]> {
   if (supabase) {
     const { data, error } = await supabase
       .from("employees")
-      .select("id, name, pin, role, areas")
+      .select("id, name, email, role, areas")
       .order("role", { ascending: false })
       .order("name");
     if (!error && data?.length) return data as Employee[];
@@ -69,13 +70,45 @@ export async function fetchEmployees(): Promise<Employee[]> {
   return DEFAULT_EMPLOYEES;
 }
 
+/** Cria o usuário de login (e-mail/senha) sem mexer na sessão do admin. */
+async function createAuthUser(
+  email: string,
+  password: string
+): Promise<{ ok: boolean; error?: string }> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !key) return { ok: false, error: "Supabase não configurado." };
+  // Cliente isolado (não persiste sessão) pra não deslogar o admin.
+  const { createClient } = await import("@supabase/supabase-js");
+  const tmp = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { error } = await tmp.auth.signUp({ email: email.trim(), password });
+  if (error && !/already registered/i.test(error.message)) {
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
 export async function saveEmployee(
-  emp: Partial<Employee> & { name: string; pin: string; role: Role }
+  emp: Partial<Employee> & { name: string; role: Role; email: string },
+  password?: string
 ): Promise<{ ok: boolean; error?: string }> {
   if (!supabase) return { ok: false, error: "Supabase não conectado." };
+  const email = emp.email.trim().toLowerCase();
+
+  // Novo funcionário: cria o login (e-mail/senha) antes de salvar.
+  if (!emp.id) {
+    if (!password || password.length < 6) {
+      return { ok: false, error: "Defina uma senha de pelo menos 6 caracteres." };
+    }
+    const auth = await createAuthUser(email, password);
+    if (!auth.ok) return auth;
+  }
+
   const payload = {
     name: emp.name.trim(),
-    pin: emp.pin.trim(),
+    email,
     role: emp.role,
     areas: emp.areas && emp.areas.length ? emp.areas : null,
   };
@@ -91,21 +124,41 @@ export async function deleteEmployee(id: string): Promise<{ ok: boolean; error?:
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
-/** Login do admin por e-mail e senha (Supabase Auth). */
+/** Login por e-mail e senha (Supabase Auth) + papel/áreas vindos da tabela employees. */
 export async function signInEmail(
   email: string,
   password: string
-): Promise<{ ok: boolean; user?: { id: string; name: string }; error?: string }> {
+): Promise<{
+  ok: boolean;
+  user?: { id: string; name: string; role: Role; areas?: Area[] | null };
+  error?: string;
+}> {
   if (!supabase) return { ok: false, error: "Supabase não conectado." };
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password,
-  });
-  if (error) return { ok: false, error: error.message };
-  const u = data.user;
-  const name =
-    (u?.user_metadata?.name as string) || u?.email?.split("@")[0] || "Admin";
-  return { ok: true, user: { id: u!.id, name } };
+  const mail = email.trim().toLowerCase();
+  const { error } = await supabase.auth.signInWithPassword({ email: mail, password });
+  if (error) {
+    return {
+      ok: false,
+      error:
+        error.message === "Invalid login credentials"
+          ? "E-mail ou senha incorretos."
+          : error.message,
+    };
+  }
+  // Só entra quem está cadastrado na equipe (allowlist + papel/áreas).
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("id, name, role, areas")
+    .eq("email", mail)
+    .maybeSingle();
+  if (!emp) {
+    await supabase.auth.signOut();
+    return { ok: false, error: "Acesso não autorizado. Fale com o gestor." };
+  }
+  return {
+    ok: true,
+    user: { id: emp.id, name: emp.name, role: emp.role, areas: emp.areas ?? null },
+  };
 }
 
 export async function fetchLogs(): Promise<TaskLog[]> {

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { QrCode, RefreshCw, Smartphone, CircleAlert } from "lucide-react";
-import { waStatus, waConnect } from "@/lib/wa";
+import { QrCode, RefreshCw, Smartphone, CircleAlert, Eraser } from "lucide-react";
+import { waStatus, waConnect, waReset } from "@/lib/wa";
 
 type State = "loading" | "unconfigured" | "close" | "connecting" | "open" | "error";
 
@@ -44,6 +44,18 @@ export default function WhatsappConnect() {
     }
     if (r.base64) setQr(r.base64);
     startPolling();
+  }
+
+  async function resetAndConnect() {
+    if (!confirm("Isso apaga TODAS as conversas atuais e gera um QR novo, pra você conectar outro número. Continuar?"))
+      return;
+    setMsg("Limpando…");
+    setQr(null);
+    stopPolling();
+    setState("connecting");
+    await waReset();
+    setMsg("");
+    await connect();
   }
 
   function startPolling() {
@@ -121,6 +133,17 @@ export default function WhatsappConnect() {
           <p className="mt-4 flex items-center gap-1.5 text-xs text-rose-300">
             <CircleAlert size={13} /> {msg}
           </p>
+        )}
+
+        {state !== "unconfigured" && (
+          <div className="mt-5 border-t border-ink-700 pt-3 text-center">
+            <button
+              onClick={resetAndConnect}
+              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-zinc-500 hover:text-rose-300"
+            >
+              <Eraser size={12} /> Trocar número (apaga as conversas atuais)
+            </button>
+          </div>
         )}
       </div>
     </div>

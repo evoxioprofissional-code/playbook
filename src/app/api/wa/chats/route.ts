@@ -13,9 +13,8 @@ type Chat = {
   unread: number;
 };
 
-// Lista de conversas. Combina findChats (lista completa + não lidas)
-// com as mensagens recentes (sempre frescas) — assim mensagem nova,
-// inclusive de número novo, sobe na lista mesmo que o findChats trave.
+// Lista de conversas. Resolve o nome de várias fontes (contatos, chat, mensagens)
+// e mescla com as mensagens recentes pra ficar sempre fresco.
 export async function POST(req: Request) {
   const cfg = configFromRequest(req);
   if (!cfg) return Response.json({ error: "WhatsApp não configurado." }, { status: 400 });
@@ -23,29 +22,48 @@ export async function POST(req: Request) {
   const [r, rc, rm] = await Promise.all([
     evo(cfg, `/chat/findChats/${cfg.instance}`, { method: "POST", body: JSON.stringify({}) }),
     evo(cfg, `/chat/findContacts/${cfg.instance}`, { method: "POST", body: JSON.stringify({}) }),
-    evo(cfg, `/chat/findMessages/${cfg.instance}`, { method: "POST", body: JSON.stringify({ limit: 300 }) }),
+    evo(cfg, `/chat/findMessages/${cfg.instance}`, { method: "POST", body: JSON.stringify({ limit: 400 }) }),
   ]);
   if (!r.ok) {
     return Response.json({ error: "Falha ao buscar conversas.", detail: r.data }, { status: r.status || 500 });
   }
 
-  // Nomes reais dos contatos.
-  const contactArr: any[] = Array.isArray(rc.data) ? rc.data : rc.data?.contacts || rc.data?.records || [];
-  const nameByJid = new Map<string, string>();
-  for (const c of contactArr) {
-    const jid = c.remoteJid || c.id;
-    const n = (c.pushName || c.name || "").trim();
-    if (jid && n && n !== "Você") nameByJid.set(jid, n);
-  }
   const clean = (n?: string | null) => {
     const v = (n || "").trim();
     return v && v !== "Você" ? v : null;
   };
-  // Individual = contato normal (@s.whatsapp.net) ou ID novo de privacidade (@lid).
-  // Exclui grupos (@g.us), status e broadcast.
   const isContact = (jid: unknown): jid is string =>
-    typeof jid === "string" &&
-    (jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid"));
+    typeof jid === "string" && (jid.endsWith("@s.whatsapp.net") || jid.endsWith("@lid"));
+
+  // Nome dos contatos (findContacts).
+  const contactArr: any[] = Array.isArray(rc.data) ? rc.data : rc.data?.contacts || rc.data?.records || [];
+  const nameByJid = new Map<string, string>();
+  for (const c of contactArr) {
+    const jid = c.remoteJid || c.id;
+    const n = clean(c.pushName || c.name);
+    if (jid && n) nameByJid.set(jid, n);
+  }
+
+  // Mensagens recentes.
+  const rawMsgs: any[] = rm.data?.messages?.records
+    ? rm.data.messages.records
+    : Array.isArray(rm.data?.messages)
+      ? rm.data.messages
+      : Array.isArray(rm.data)
+        ? rm.data
+        : [];
+
+  // Nome que vem nas mensagens recebidas (melhor fonte pra @lid).
+  const nameFromMsg = new Map<string, string>();
+  for (const m of rawMsgs) {
+    const jid = m.key?.remoteJid;
+    if (!isContact(jid) || m.key?.fromMe) continue;
+    const n = clean(m.pushName);
+    if (n && !nameFromMsg.has(jid)) nameFromMsg.set(jid, n);
+  }
+
+  const resolveName = (jid: string, chatPush?: string | null) =>
+    nameByJid.get(jid) || clean(chatPush) || nameFromMsg.get(jid) || null;
 
   // Base: findChats.
   const map = new Map<string, Chat>();
@@ -57,7 +75,7 @@ export async function POST(req: Request) {
     map.set(jid, {
       jid,
       number: jid.replace(/@.*/, ""),
-      name: nameByJid.get(jid) || clean(c.pushName),
+      name: resolveName(jid, c.pushName),
       pic: c.profilePicUrl || null,
       preview: extractText(lm?.message),
       fromMe: Boolean(lm?.key?.fromMe),
@@ -66,15 +84,7 @@ export async function POST(req: Request) {
     });
   }
 
-  // Mescla com as mensagens recentes (mais frescas que o findChats).
-  const rawMsgs: any[] = rm.data?.messages?.records
-    ? rm.data.messages.records
-    : Array.isArray(rm.data?.messages)
-      ? rm.data.messages
-      : Array.isArray(rm.data)
-        ? rm.data
-        : [];
-
+  // Mescla as mensagens recentes (frescura + conversas que não vieram no findChats).
   const latest = new Map<string, { ts: number; msg: any }>();
   for (const m of rawMsgs) {
     const jid = m.key?.remoteJid;
@@ -93,11 +103,12 @@ export async function POST(req: Request) {
         ex.preview = extractText(msg.message);
         ex.fromMe = Boolean(msg.key?.fromMe);
       }
+      if (!ex.name) ex.name = resolveName(jid);
     } else {
       map.set(jid, {
         jid,
         number: jid.replace(/@.*/, ""),
-        name: nameByJid.get(jid) || null,
+        name: resolveName(jid),
         pic: null,
         preview: extractText(msg.message),
         fromMe: Boolean(msg.key?.fromMe),

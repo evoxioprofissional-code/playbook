@@ -15,18 +15,21 @@ import {
 import { Flame, GripVertical, Plus, Timer, Target } from "lucide-react";
 import {
   COLUMNS,
-  SEED_LEADS,
   META_MES,
   formatBRL,
   formatAge,
   slaStatus,
+  fetchLeads,
+  createLead,
+  moveLead,
   type ColumnId,
   type Lead,
 } from "@/lib/kanban";
 import Modal from "@/components/ui/Modal";
 
 export default function KanbanBoard() {
-  const [leads, setLeads] = useState<Lead[]>(SEED_LEADS);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // now=0 até montar no cliente (evita divergência de hidratação no relógio).
@@ -39,6 +42,19 @@ export default function KanbanBoard() {
     return () => clearInterval(t);
   }, []);
 
+  // Carrega os leads reais do Supabase.
+  useEffect(() => {
+    let alive = true;
+    fetchLeads().then((rows) => {
+      if (!alive) return;
+      setLeads(rows);
+      setLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -49,10 +65,12 @@ export default function KanbanBoard() {
   const onDragEnd = (e: DragEndEvent) => {
     setActiveId(null);
     const over = e.over?.id as ColumnId | undefined;
+    const id = String(e.active.id);
     if (!over) return;
-    setLeads((prev) =>
-      prev.map((l) => (l.id === e.active.id ? { ...l, column: over } : l))
-    );
+    const lead = leads.find((l) => l.id === id);
+    if (!lead || lead.column === over) return;
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, column: over } : l)));
+    moveLead(id, over); // persiste no Supabase
   };
 
   const pipeline = leads
@@ -99,7 +117,7 @@ export default function KanbanBoard() {
         </button>
       </div>
 
-      {now === 0 ? (
+      {now === 0 || loading ? (
         <div className="flex flex-1 items-center justify-center text-sm text-zinc-600">
           Carregando leads…
         </div>
@@ -125,9 +143,10 @@ export default function KanbanBoard() {
       <NewLeadModal
         open={adding}
         onClose={() => setAdding(false)}
-        onCreate={(lead) => {
-          setLeads((p) => [...p, lead]);
+        onCreate={async (input) => {
           setAdding(false);
+          const created = await createLead(input);
+          if (created) setLeads((p) => [...p, created]);
         }}
       />
     </div>
@@ -315,7 +334,13 @@ function NewLeadModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onCreate: (lead: Lead) => void;
+  onCreate: (input: {
+    name: string;
+    company: string;
+    type: Lead["type"];
+    qty: number;
+    value: number;
+  }) => void;
 }) {
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
@@ -332,14 +357,11 @@ function NewLeadModal({
   const submit = () => {
     if (!name.trim()) return;
     onCreate({
-      id: `l-${Date.now()}`,
       name: name.trim(),
       company: company.trim() || "—",
       type,
       qty,
       value: qty * 26,
-      column: "novo",
-      createdAt: new Date().toISOString(),
     });
     reset();
   };

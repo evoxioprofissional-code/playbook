@@ -26,12 +26,13 @@ import {
 type Draft = {
   id?: string;
   name: string;
-  pin: string;
+  email: string;
+  password: string;
   role: Role;
   areas: Area[];
 };
 
-const EMPTY: Draft = { name: "", pin: "", role: "vendedor", areas: [] };
+const EMPTY: Draft = { name: "", email: "", password: "", role: "vendedor", areas: [] };
 
 export default function AdminPanel() {
   const { user } = useSession();
@@ -57,18 +58,25 @@ export default function AdminPanel() {
         <Lock size={36} className="text-zinc-600" />
         <h2 className="mt-3 text-lg font-extrabold text-white">Área restrita</h2>
         <p className="mt-1 max-w-sm text-sm text-zinc-400">
-          O painel de administração é só para o <b>Gestor</b>. Entre com o PIN do
-          gestor (canto inferior esquerdo) para acessar.
+          O painel de administração é só para o <b>Gestor</b>. Entre com o e-mail e
+          senha do gestor para acessar.
         </p>
       </div>
     );
   }
 
   async function submit() {
-    if (!draft || !draft.name.trim() || draft.pin.trim().length < 4) return;
+    if (!draft || !draft.name.trim() || !draft.email.trim()) return;
+    if (!draft.id && draft.password.length < 6) {
+      setErr("Defina uma senha de pelo menos 6 caracteres.");
+      return;
+    }
     setSaving(true);
     setErr("");
-    const r = await saveEmployee(draft);
+    const r = await saveEmployee(
+      { id: draft.id, name: draft.name, email: draft.email, role: draft.role, areas: draft.areas },
+      draft.password
+    );
     setSaving(false);
     if (!r.ok) {
       setErr(r.error || "Falha ao salvar.");
@@ -131,7 +139,7 @@ export default function AdminPanel() {
                     </span>
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
-                    PIN <span className="font-mono text-zinc-300">{e.pin}</span> ·{" "}
+                    <span className="text-zinc-400">{e.email || "sem e-mail"}</span> ·{" "}
                     {e.role === "gestor" ? (
                       "vê tudo"
                     ) : e.areas && e.areas.length ? (
@@ -153,7 +161,8 @@ export default function AdminPanel() {
                     setDraft({
                       id: e.id,
                       name: e.name,
-                      pin: e.pin,
+                      email: e.email || "",
+                      password: "",
                       role: e.role,
                       areas: e.areas || [],
                     })
@@ -188,9 +197,14 @@ export default function AdminPanel() {
               )}
               <button
                 onClick={submit}
-                disabled={!draft.name.trim() || draft.pin.trim().length < 4 || saving}
+                disabled={
+                  !draft.name.trim() ||
+                  !draft.email.trim() ||
+                  (!draft.id && draft.password.length < 6) ||
+                  saving
+                }
                 className={`flex-1 rounded-xl py-2.5 text-sm font-bold transition ${
-                  draft.name.trim() && draft.pin.trim().length >= 4 && !saving
+                  draft.name.trim() && draft.email.trim() && !saving
                     ? "bg-flame-500 text-black hover:bg-flame-400"
                     : "cursor-not-allowed bg-ink-700 text-zinc-500"
                 }`}
@@ -203,24 +217,13 @@ export default function AdminPanel() {
       >
         {draft && (
           <div className="space-y-3">
-            <Field label="Nome">
-              <input
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                placeholder="Ex.: Romário"
-                className="ad-inp"
-              />
-            </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="PIN (4 dígitos)">
+              <Field label="Nome">
                 <input
-                  value={draft.pin}
-                  onChange={(e) =>
-                    setDraft({ ...draft, pin: e.target.value.replace(/\D/g, "").slice(0, 4) })
-                  }
-                  placeholder="0000"
-                  inputMode="numeric"
-                  className="ad-inp font-mono"
+                  value={draft.name}
+                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                  placeholder="Ex.: Romário"
+                  className="ad-inp"
                 />
               </Field>
               <Field label="Papel">
@@ -234,6 +237,27 @@ export default function AdminPanel() {
                 </select>
               </Field>
             </div>
+            <Field label="E-mail (login)">
+              <input
+                type="email"
+                value={draft.email}
+                onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+                placeholder="funcionario@email.com"
+                disabled={Boolean(draft.id)}
+                className="ad-inp"
+              />
+            </Field>
+            {!draft.id && (
+              <Field label="Senha (mín. 6 caracteres)">
+                <input
+                  type="text"
+                  value={draft.password}
+                  onChange={(e) => setDraft({ ...draft, password: e.target.value })}
+                  placeholder="senha inicial"
+                  className="ad-inp"
+                />
+              </Field>
+            )}
 
             <div>
               <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
