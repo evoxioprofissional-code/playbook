@@ -4,7 +4,7 @@
 // "claim" atômico pra duas abas/aparelhos nunca enviarem a mesma duas vezes.
 
 import { supabase, isSupabaseEnabled } from "./supabase";
-import { waSend } from "./wa";
+import { waSend, currentInstance } from "./wa";
 
 export type CampaignTarget = {
   id: string;
@@ -58,6 +58,7 @@ export async function createCampaign(input: {
       message: input.message,
       interval_sec: intervalSec,
       interval_min: Math.max(1, Math.round(intervalSec / 60)),
+      instance: currentInstance() || null,
     })
     .select()
     .single();
@@ -76,13 +77,16 @@ function campaignSec(c: Campaign) {
   return c.interval_sec || (c.interval_min || 8) * 60;
 }
 
-/** Estado da campanha em andamento (pra mostrar progresso). */
+/** Estado da campanha em andamento (pra mostrar progresso). Só do vendedor logado. */
 export async function fetchActiveCampaign(): Promise<CampaignState | null> {
   if (!isSupabaseEnabled || !supabase) return null;
+  const inst = currentInstance();
+  if (!inst) return null;
   const { data: camps } = await supabase
     .from("wa_campaigns")
     .select("*")
     .eq("status", "running")
+    .eq("instance", inst)
     .order("created_at", { ascending: true })
     .limit(1);
   const campaign = camps?.[0] as Campaign | undefined;
@@ -108,13 +112,23 @@ export async function fetchActiveCampaign(): Promise<CampaignState | null> {
   return { campaign, total: targets.length, sent, errors, pending, intervalSec, nextInSec };
 }
 
-/** Mapa jid -> data ISO do último envio de recuperação (status 'sent'). */
+/** Mapa jid -> data ISO do último envio de recuperação (do vendedor logado). */
 export async function fetchRecoveredJids(): Promise<Record<string, string>> {
   if (!isSupabaseEnabled || !supabase) return {};
+  const inst = currentInstance();
+  if (!inst) return {};
+  // Campanhas deste vendedor.
+  const { data: camps } = await supabase
+    .from("wa_campaigns")
+    .select("id")
+    .eq("instance", inst);
+  const ids = (camps || []).map((c: { id: string }) => c.id);
+  if (!ids.length) return {};
   const { data } = await supabase
     .from("wa_campaign_targets")
     .select("jid, sent_at")
-    .eq("status", "sent");
+    .eq("status", "sent")
+    .in("campaign_id", ids);
   const map: Record<string, string> = {};
   for (const r of (data || []) as { jid: string; sent_at: string | null }[]) {
     if (!r.jid || !r.sent_at) continue;
@@ -135,11 +149,14 @@ export async function cancelCampaign(id: string): Promise<void> {
  */
 export async function tickCampaign(): Promise<void> {
   if (!isSupabaseEnabled || !supabase) return;
+  const inst = currentInstance();
+  if (!inst) return;
 
   const { data: camps } = await supabase
     .from("wa_campaigns")
     .select("*")
     .eq("status", "running")
+    .eq("instance", inst)
     .order("created_at", { ascending: true })
     .limit(1);
   const camp = camps?.[0] as Campaign | undefined;

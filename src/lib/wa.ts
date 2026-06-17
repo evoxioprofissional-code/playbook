@@ -23,12 +23,31 @@ export function isWaConfigured(): boolean {
   return Boolean(c.url && c.key && c.instance);
 }
 
+/** Instância do WhatsApp de um vendedor (uma por usuário, no mesmo servidor). */
+export function instanceForUser(userId: string): string {
+  return `j2a-${userId}`;
+}
+
+/** Instância do usuário logado (lida da sessão). Vazio = sem login. */
+export function currentInstance(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = localStorage.getItem("j2a_session");
+    const u = raw ? JSON.parse(raw) : null;
+    return u?.id ? instanceForUser(u.id) : "";
+  } catch {
+    return "";
+  }
+}
+
 function headers(extra?: Record<string, string>): Record<string, string> {
   const c = getWaConfig();
   const h: Record<string, string> = { ...(extra || {}) };
   if (c.url) h["x-evo-url"] = c.url;
   if (c.key) h["x-evo-key"] = c.key;
-  if (c.instance) h["x-evo-instance"] = c.instance;
+  // Cada vendedor usa a própria instância (isola o WhatsApp por usuário).
+  const instance = c.instance || currentInstance();
+  if (instance) h["x-evo-instance"] = instance;
   return h;
 }
 

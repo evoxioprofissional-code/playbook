@@ -105,11 +105,13 @@ create table if not exists wa_campaigns (
   message      text not null,
   interval_min integer not null default 8,        -- legado (mantido p/ compatibilidade)
   interval_sec integer not null default 480,       -- intervalo real entre envios, em segundos
+  instance     text,                                -- WhatsApp (vendedor) dono da campanha
   status       text not null default 'running' check (status in ('running','done','canceled')),
   created_at   timestamptz not null default now()
 );
--- migração p/ bancos já criados:
+-- migrações p/ bancos já criados:
 alter table wa_campaigns add column if not exists interval_sec integer not null default 480;
+alter table wa_campaigns add column if not exists instance text;
 
 create table if not exists wa_campaign_targets (
   id           uuid primary key default gen_random_uuid(),
