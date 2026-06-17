@@ -39,6 +39,7 @@ import {
   createCampaign,
   fetchActiveCampaign,
   cancelCampaign,
+  fetchRecoveredJids,
   type CampaignState,
 } from "@/lib/waCampaign";
 import { useScripts } from "@/components/scripts/useScripts";
@@ -139,6 +140,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   const { scripts } = useScripts();
   const [recoverTargets, setRecoverTargets] = useState<WaChat[] | null>(null);
   const [campaign, setCampaign] = useState<CampaignState | null>(null);
+  const [recovered, setRecovered] = useState<Record<string, string>>({});
   const [chats, setChats] = useState<WaChat[]>([]);
   const [active, setActive] = useState<WaChat | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
@@ -243,10 +245,14 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     aliasesRef.current = aliases;
   }, [aliases]);
 
-  // Acompanha a campanha de recuperação em andamento (pra mostrar/parar).
+  // Acompanha a campanha de recuperação em andamento (pra mostrar/parar)
+  // e quem já recebeu recuperação (etiqueta no contato).
   useEffect(() => {
     let alive = true;
-    const load = () => fetchActiveCampaign().then((s) => alive && setCampaign(s));
+    const load = () => {
+      fetchActiveCampaign().then((s) => alive && setCampaign(s));
+      fetchRecoveredJids().then((m) => alive && setRecovered(m));
+    };
     load();
     const id = setInterval(load, 15000);
     const wake = () => load();
@@ -586,6 +592,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
           onRecover={(list) => setRecoverTargets(list)}
           campaign={campaign}
           onStop={stopCampaign}
+          recovered={recovered}
         />
       ) : (
       <div className="flex flex-1 overflow-hidden">
@@ -626,8 +633,11 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-bold text-white">
-                          {label(c)}
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate text-sm font-bold text-white">
+                            {label(c)}
+                          </span>
+                          {recovered[c.jid] && <RecoveredTag compact />}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}
@@ -702,7 +712,10 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                 ) : (
                   <>
                     <div className="leading-tight">
-                      <p className="text-sm font-bold text-white">{label(active)}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-white">{label(active)}</p>
+                        {recovered[active.jid] && <RecoveredTag at={recovered[active.jid]} />}
+                      </div>
                       {!active.jid.endsWith("@lid") && (
                         <p className="text-[11px] text-zinc-500">+{active.number}</p>
                       )}
@@ -1015,6 +1028,7 @@ function RadarView({
   onRecover,
   campaign,
   onStop,
+  recovered,
 }: {
   radar: {
     responder: WaChat[];
@@ -1027,6 +1041,7 @@ function RadarView({
   onRecover: (list: WaChat[]) => void;
   campaign: CampaignState | null;
   onStop: () => void;
+  recovered: Record<string, string>;
 }) {
   const label = (c: WaChat) => chatLabel(c, aliases);
   const groups = [
@@ -1108,8 +1123,11 @@ function RadarView({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sm font-bold text-white">
-                          {label(c)}
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate text-sm font-bold text-white">
+                            {label(c)}
+                          </span>
+                          {recovered[c.jid] && <RecoveredTag compact />}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}
@@ -1127,6 +1145,28 @@ function RadarView({
           )
       )}
     </div>
+  );
+}
+
+// Etiqueta "recuperação feita" no contato.
+function RecoveredTag({ at, compact }: { at?: string; compact?: boolean }) {
+  const date = at
+    ? new Date(at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+    : "";
+  if (compact) {
+    return (
+      <span
+        title={`Recuperação feita${date ? ` em ${date}` : ""}`}
+        className="flex shrink-0 items-center gap-0.5 rounded bg-violet-500/20 px-1 py-0.5 text-[9px] font-bold text-violet-300"
+      >
+        <Check size={9} strokeWidth={3} /> rec.
+      </span>
+    );
+  }
+  return (
+    <span className="flex shrink-0 items-center gap-1 rounded-md bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-bold text-violet-300">
+      <Check size={11} strokeWidth={3} /> Recuperação feita{date ? ` · ${date}` : ""}
+    </span>
   );
 }
 

@@ -108,6 +108,21 @@ export async function fetchActiveCampaign(): Promise<CampaignState | null> {
   return { campaign, total: targets.length, sent, errors, pending, intervalSec, nextInSec };
 }
 
+/** Mapa jid -> data ISO do último envio de recuperação (status 'sent'). */
+export async function fetchRecoveredJids(): Promise<Record<string, string>> {
+  if (!isSupabaseEnabled || !supabase) return {};
+  const { data } = await supabase
+    .from("wa_campaign_targets")
+    .select("jid, sent_at")
+    .eq("status", "sent");
+  const map: Record<string, string> = {};
+  for (const r of (data || []) as { jid: string; sent_at: string | null }[]) {
+    if (!r.jid || !r.sent_at) continue;
+    if (!map[r.jid] || r.sent_at > map[r.jid]) map[r.jid] = r.sent_at;
+  }
+  return map;
+}
+
 export async function cancelCampaign(id: string): Promise<void> {
   if (!isSupabaseEnabled || !supabase) return;
   await supabase.from("wa_campaigns").update({ status: "canceled" }).eq("id", id);
