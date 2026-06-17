@@ -1,6 +1,9 @@
 import { supabase, isSupabaseEnabled } from "./supabase";
 
-export type Role = "vendedor" | "gestor";
+export type Role = "vendedor" | "gestor" | "master";
+
+/** Fábrica (organização) — multi-tenant. */
+export type Organization = { id: string; name: string };
 
 /** Áreas do playbook que um funcionário cobre. Vazio/null = vê todas. */
 export type Area = "vendas" | "instagram" | "criativos";
@@ -18,6 +21,7 @@ export type Employee = {
   pin?: string | null;
   role: Role;
   areas?: Area[] | null;
+  orgId?: string | null;
 };
 
 /**
@@ -58,16 +62,61 @@ function writeLocal(rows: TaskLog[]) {
   localStorage.setItem(LS_LOGS, JSON.stringify(rows));
 }
 
-export async function fetchEmployees(): Promise<Employee[]> {
+type EmployeeRow = {
+  id: string;
+  name: string;
+  email?: string | null;
+  role: Role;
+  areas?: Area[] | null;
+  org_id?: string | null;
+};
+
+const rowToEmployee = (e: EmployeeRow): Employee => ({
+  id: e.id,
+  name: e.name,
+  email: e.email ?? null,
+  role: e.role,
+  areas: e.areas ?? null,
+  orgId: e.org_id ?? null,
+});
+
+/** Lista funcionários. Se `orgId` vier, filtra pela fábrica (escopo do gestor). */
+export async function fetchEmployees(orgId?: string | null): Promise<Employee[]> {
   if (supabase) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("employees")
-      .select("id, name, email, role, areas")
+      .select("id, name, email, role, areas, org_id")
       .order("role", { ascending: false })
       .order("name");
-    if (!error && data?.length) return data as Employee[];
+    if (orgId) q = q.eq("org_id", orgId);
+    const { data, error } = await q;
+    if (!error && data) return (data as EmployeeRow[]).map(rowToEmployee);
   }
   return DEFAULT_EMPLOYEES;
+}
+
+/** Fábricas (organizações). */
+export async function fetchOrganizations(): Promise<Organization[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("id, name")
+    .order("name");
+  if (error || !data) return [];
+  return data as Organization[];
+}
+
+export async function createOrganization(
+  name: string
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  if (!supabase) return { ok: false, error: "Supabase não conectado." };
+  const { data, error } = await supabase
+    .from("organizations")
+    .insert({ name: name.trim() })
+    .select()
+    .single();
+  if (error || !data) return { ok: false, error: error?.message || "Falha ao criar fábrica." };
+  return { ok: true, id: data.id };
 }
 
 /** Cria o usuário de login (e-mail/senha) sem mexer na sessão do admin. */
@@ -111,6 +160,7 @@ export async function saveEmployee(
     email,
     role: emp.role,
     areas: emp.areas && emp.areas.length ? emp.areas : null,
+    org_id: emp.orgId ?? null,
   };
   const res = emp.id
     ? await supabase.from("employees").update(payload).eq("id", emp.id)
@@ -130,7 +180,7 @@ export async function signInEmail(
   password: string
 ): Promise<{
   ok: boolean;
-  user?: { id: string; name: string; role: Role; areas?: Area[] | null };
+  user?: { id: string; name: string; role: Role; areas?: Area[] | null; orgId?: string | null };
   error?: string;
 }> {
   if (!supabase) return { ok: false, error: "Supabase não conectado." };
@@ -145,10 +195,10 @@ export async function signInEmail(
           : error.message,
     };
   }
-  // Só entra quem está cadastrado na equipe (allowlist + papel/áreas).
+  // Só entra quem está cadastrado na equipe (allowlist + papel/áreas/fábrica).
   const { data: emp } = await supabase
     .from("employees")
-    .select("id, name, role, areas")
+    .select("id, name, role, areas, org_id")
     .eq("email", mail)
     .maybeSingle();
   if (!emp) {
@@ -157,7 +207,13 @@ export async function signInEmail(
   }
   return {
     ok: true,
-    user: { id: emp.id, name: emp.name, role: emp.role, areas: emp.areas ?? null },
+    user: {
+      id: emp.id,
+      name: emp.name,
+      role: emp.role,
+      areas: emp.areas ?? null,
+      orgId: emp.org_id ?? null,
+    },
   };
 }
 

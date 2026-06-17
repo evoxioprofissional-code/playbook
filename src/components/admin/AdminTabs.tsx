@@ -1,26 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { Users, ClipboardList, Lock } from "lucide-react";
+import { Users, ClipboardList, Building2, Lock } from "lucide-react";
 import { useSession } from "@/components/team/session";
 import AdminPanel from "./AdminPanel";
 import PlaybookEditor from "./PlaybookEditor";
+import MasterPanel from "./MasterPanel";
 
-type Tab = "equipe" | "playbook";
+type Tab = "fabricas" | "funcionarios" | "playbook";
 
 export default function AdminTabs() {
   const { user } = useSession();
-  const [tab, setTab] = useState<Tab>("equipe");
+  const isMaster = user?.role === "master";
+  const [tab, setTab] = useState<Tab>(isMaster ? "fabricas" : "funcionarios");
 
-  // Acesso só pro gestor.
-  if (!user || user.role !== "gestor") {
+  // Acesso só pro gestor ou master.
+  if (!user || (user.role !== "gestor" && user.role !== "master")) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
         <Lock size={36} className="text-zinc-600" />
         <h2 className="mt-3 text-lg font-extrabold text-white">Área restrita</h2>
         <p className="mt-1 max-w-sm text-sm text-zinc-400">
-          O painel de administração é só para o <b>Gestor</b>. Entre com o e-mail e
-          senha do gestor para acessar.
+          O painel de administração é só para o <b>Gestor</b> ou o <b>dono do sistema</b>.
+          Entre com o login certo para acessar.
         </p>
       </div>
     );
@@ -29,7 +31,20 @@ export default function AdminTabs() {
   return (
     <div>
       <div className="flex items-center gap-1 border-b border-ink-700 px-6 sm:px-8">
-        <TabBtn icon={Users} label="Equipe" active={tab === "equipe"} onClick={() => setTab("equipe")} />
+        {isMaster && (
+          <TabBtn
+            icon={Building2}
+            label="Fábricas"
+            active={tab === "fabricas"}
+            onClick={() => setTab("fabricas")}
+          />
+        )}
+        <TabBtn
+          icon={Users}
+          label="Funcionários"
+          active={tab === "funcionarios"}
+          onClick={() => setTab("funcionarios")}
+        />
         <TabBtn
           icon={ClipboardList}
           label="Playbook"
@@ -38,7 +53,13 @@ export default function AdminTabs() {
         />
       </div>
 
-      {tab === "equipe" ? <AdminPanel /> : <PlaybookEditor />}
+      {tab === "fabricas" && isMaster ? (
+        <MasterPanel />
+      ) : tab === "funcionarios" ? (
+        <AdminPanel />
+      ) : (
+        <PlaybookEditor />
+      )}
     </div>
   );
 }

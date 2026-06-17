@@ -23,12 +23,12 @@ export default function AccountBar() {
   return (
     <div className="flex items-center gap-2.5 rounded-xl bg-ink-800 px-3 py-2.5 ring-1 ring-ink-700">
       <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-flame-500 text-black">
-        {user.role === "gestor" ? <ShieldCheck size={16} /> : <UserRound size={16} />}
+        {user.role === "vendedor" ? <UserRound size={16} /> : <ShieldCheck size={16} />}
       </span>
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-sm font-bold text-white">{user.name}</p>
         <p className="text-[10px] uppercase tracking-wide text-flame-400">
-          {user.role === "gestor" ? "Gestor" : "Vendedor"}
+          {user.role === "master" ? "Dono" : user.role === "gestor" ? "Gestor" : "Vendedor"}
         </p>
       </div>
       <button

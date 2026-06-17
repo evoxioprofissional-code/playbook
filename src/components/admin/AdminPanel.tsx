@@ -14,11 +14,13 @@ import Modal from "@/components/ui/Modal";
 import { useSession } from "@/components/team/session";
 import {
   fetchEmployees,
+  fetchOrganizations,
   saveEmployee,
   deleteEmployee,
   isSupabaseEnabled,
   AREAS,
   type Employee,
+  type Organization,
   type Role,
   type Area,
 } from "@/lib/store";
@@ -30,13 +32,18 @@ type Draft = {
   password: string;
   role: Role;
   areas: Area[];
+  orgId: string;
 };
 
-const EMPTY: Draft = { name: "", email: "", password: "", role: "vendedor", areas: [] };
+const EMPTY: Draft = { name: "", email: "", password: "", role: "vendedor", areas: [], orgId: "" };
 
 export default function AdminPanel() {
   const { user } = useSession();
+  const isMaster = user?.role === "master";
+  // Gestor mexe só na própria fábrica; master vê/escolhe todas.
+  const scopeOrg = isMaster ? null : user?.orgId ?? null;
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -44,22 +51,25 @@ export default function AdminPanel() {
 
   const load = async () => {
     setLoading(true);
-    setEmployees(await fetchEmployees());
+    setEmployees(await fetchEmployees(scopeOrg));
+    if (isMaster) setOrgs(await fetchOrganizations());
     setLoading(false);
   };
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeOrg]);
 
-  // Acesso só pro gestor.
-  if (!user || user.role !== "gestor") {
+  const orgName = (id?: string | null) => orgs.find((o) => o.id === id)?.name || "—";
+
+  // Acesso só pro gestor ou master.
+  if (!user || (user.role !== "gestor" && user.role !== "master")) {
     return (
       <div className="flex flex-col items-center justify-center px-6 py-20 text-center">
         <Lock size={36} className="text-zinc-600" />
         <h2 className="mt-3 text-lg font-extrabold text-white">Área restrita</h2>
         <p className="mt-1 max-w-sm text-sm text-zinc-400">
-          O painel de administração é só para o <b>Gestor</b>. Entre com o e-mail e
-          senha do gestor para acessar.
+          O painel de administração é só para o <b>Gestor</b> ou o <b>dono</b>.
         </p>
       </div>
     );
@@ -71,10 +81,16 @@ export default function AdminPanel() {
       setErr("Defina uma senha de pelo menos 6 caracteres.");
       return;
     }
+    // Master precisa escolher a fábrica; gestor usa a própria.
+    const orgId = isMaster ? draft.orgId || null : user?.orgId ?? null;
+    if (isMaster && !orgId) {
+      setErr("Escolha a fábrica deste funcionário.");
+      return;
+    }
     setSaving(true);
     setErr("");
     const r = await saveEmployee(
-      { id: draft.id, name: draft.name, email: draft.email, role: draft.role, areas: draft.areas },
+      { id: draft.id, name: draft.name, email: draft.email, role: draft.role, areas: draft.areas, orgId },
       draft.password
     );
     setSaving(false);
@@ -139,6 +155,11 @@ export default function AdminPanel() {
                     </span>
                   </p>
                   <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-zinc-500">
+                    {isMaster && (
+                      <span className="rounded bg-ink-800 px-1.5 py-0.5 font-bold text-zinc-300">
+                        {orgName(e.orgId)}
+                      </span>
+                    )}
                     <span className="text-zinc-400">{e.email || "sem e-mail"}</span> ·{" "}
                     {e.role === "gestor" ? (
                       "vê tudo"
@@ -165,6 +186,7 @@ export default function AdminPanel() {
                       password: "",
                       role: e.role,
                       areas: e.areas || [],
+                      orgId: e.orgId || "",
                     })
                   }
                   className="rounded-lg p-2 text-zinc-400 hover:text-flame-400"
@@ -237,6 +259,22 @@ export default function AdminPanel() {
                 </select>
               </Field>
             </div>
+            {isMaster && (
+              <Field label="Fábrica">
+                <select
+                  value={draft.orgId}
+                  onChange={(e) => setDraft({ ...draft, orgId: e.target.value })}
+                  className="ad-inp"
+                >
+                  <option value="">Escolha a fábrica…</option>
+                  {orgs.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
             <Field label="E-mail (login)">
               <input
                 type="email"

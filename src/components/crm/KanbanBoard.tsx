@@ -28,9 +28,12 @@ import {
 } from "@/lib/kanban";
 import { waChats } from "@/lib/wa";
 import { fetchAliases } from "@/lib/waAliases";
+import { useSession } from "@/components/team/session";
 import Modal from "@/components/ui/Modal";
 
 export default function KanbanBoard() {
+  const { user } = useSession();
+  const orgId = user?.orgId ?? null;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -48,7 +51,7 @@ export default function KanbanBoard() {
   // Carrega os leads reais do Supabase.
   useEffect(() => {
     let alive = true;
-    fetchLeads().then((rows) => {
+    fetchLeads(orgId).then((rows) => {
       if (!alive) return;
       setLeads(rows);
       setLoading(false);
@@ -56,7 +59,7 @@ export default function KanbanBoard() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [orgId]);
 
   // Puxa do WhatsApp: toda conversa nova vira lead na coluna "Novo".
   // Roda ao abrir e a cada 25s (idempotente — deduplica por wa_jid).
@@ -66,7 +69,7 @@ export default function KanbanBoard() {
       const { chats } = await waChats();
       if (!alive || !chats?.length) return;
       const aliases = await fetchAliases();
-      const created = await syncWhatsappLeads(chats, aliases);
+      const created = await syncWhatsappLeads(chats, aliases, orgId);
       if (alive && created.length) {
         setLeads((prev) => {
           const have = new Set(prev.map((l) => l.id));
@@ -80,7 +83,7 @@ export default function KanbanBoard() {
       alive = false;
       clearInterval(id);
     };
-  }, []);
+  }, [orgId]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -172,7 +175,7 @@ export default function KanbanBoard() {
         onClose={() => setAdding(false)}
         onCreate={async (input) => {
           setAdding(false);
-          const created = await createLead(input);
+          const created = await createLead(input, orgId);
           if (created) setLeads((p) => [...p, created]);
         }}
       />

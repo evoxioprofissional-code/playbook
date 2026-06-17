@@ -90,23 +90,25 @@ function rowToLead(r: LeadRow): Lead {
   };
 }
 
-export async function fetchLeads(): Promise<Lead[]> {
+export async function fetchLeads(orgId?: string | null): Promise<Lead[]> {
   if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("leads")
-    .select("*")
-    .order("created_at", { ascending: true });
+  let q = supabase.from("leads").select("*").order("created_at", { ascending: true });
+  if (orgId) q = q.eq("org_id", orgId);
+  const { data, error } = await q;
   if (error || !data) return [];
   return (data as LeadRow[]).map(rowToLead);
 }
 
-export async function createLead(l: {
-  name: string;
-  company: string;
-  type: Lead["type"];
-  qty: number;
-  value: number;
-}): Promise<Lead | null> {
+export async function createLead(
+  l: {
+    name: string;
+    company: string;
+    type: Lead["type"];
+    qty: number;
+    value: number;
+  },
+  orgId?: string | null
+): Promise<Lead | null> {
   if (!supabase) return null;
   const { data, error } = await supabase
     .from("leads")
@@ -118,6 +120,7 @@ export async function createLead(l: {
       value: l.value,
       column_id: "novo",
       hot: false,
+      org_id: orgId ?? null,
     })
     .select()
     .single();
@@ -140,15 +143,15 @@ function leadNameFromChat(c: WaChat, aliases: Record<string, string>): string {
  */
 export async function syncWhatsappLeads(
   chats: WaChat[],
-  aliases: Record<string, string> = {}
+  aliases: Record<string, string> = {},
+  orgId?: string | null
 ): Promise<Lead[]> {
   if (!supabase || !chats.length) return [];
 
-  // Quais conversas já são leads.
-  const { data: ex } = await supabase
-    .from("leads")
-    .select("wa_jid")
-    .not("wa_jid", "is", null);
+  // Quais conversas já são leads (nesta fábrica).
+  let exq = supabase.from("leads").select("wa_jid").not("wa_jid", "is", null);
+  if (orgId) exq = exq.eq("org_id", orgId);
+  const { data: ex } = await exq;
   const known = new Set((ex || []).map((r: { wa_jid: string | null }) => r.wa_jid));
 
   const novos = chats.filter((c) => c.jid && !known.has(c.jid));
@@ -164,6 +167,7 @@ export async function syncWhatsappLeads(
     hot: false,
     wa_jid: c.jid,
     created_at: c.time || new Date().toISOString(),
+    org_id: orgId ?? null,
   }));
 
   // upsert ignorando conflito de wa_jid (à prova de corrida entre abas).

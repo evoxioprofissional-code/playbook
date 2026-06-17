@@ -14,6 +14,7 @@ export type SessionUser = {
   name: string;
   role: Role;
   areas?: Area[] | null;
+  orgId?: string | null;
 };
 
 type SessionCtx = {

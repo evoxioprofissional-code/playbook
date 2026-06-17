@@ -4,13 +4,24 @@
 -- fiscalização compartilhada entre os 3 funcionários.
 
 -- ─────────────────────────────────────────────────────────────
--- Funcionários + PIN
+-- Fábricas (organizações) — multi-tenant. Cada fábrica tem seu gestor
+-- e seus vendedores; o "master" (dono do sistema) cria as fábricas.
+-- ─────────────────────────────────────────────────────────────
+create table if not exists organizations (
+  id          uuid primary key default gen_random_uuid(),
+  name        text not null,
+  created_at  timestamptz not null default now()
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- Funcionários
 -- ─────────────────────────────────────────────────────────────
 create table if not exists employees (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
-  pin         text not null,
-  role        text not null default 'vendedor' check (role in ('vendedor','gestor')),
+  pin         text,
+  role        text not null default 'vendedor' check (role in ('vendedor','gestor','master')),
+  org_id      uuid references organizations(id),
   created_at  timestamptz not null default now()
 );
 
@@ -56,7 +67,9 @@ create table if not exists leads (
   hot         boolean not null default false,
   created_at  timestamptz not null default now(),
   -- conversa do WhatsApp de origem (quando o lead entrou automaticamente).
-  wa_jid      text
+  wa_jid      text,
+  -- fábrica dona do lead (multi-tenant).
+  org_id      uuid references organizations(id)
 );
 
 -- Cada conversa do WhatsApp vira no máximo 1 lead. NULLs são distintos no
@@ -134,10 +147,13 @@ alter table employees  enable row level security;
 alter table task_logs  enable row level security;
 alter table leads      enable row level security;
 alter table creatives  enable row level security;
+alter table organizations enable row level security;
+alter table employees  enable row level security;
 alter table wa_aliases enable row level security;
 alter table app_config enable row level security;
 alter table wa_campaigns enable row level security;
 alter table wa_campaign_targets enable row level security;
+create policy "anon full organizations" on organizations for all using (true) with check (true);
 
 create policy "anon full employees"   on employees   for all using (true) with check (true);
 create policy "anon full task_logs"   on task_logs   for all using (true) with check (true);

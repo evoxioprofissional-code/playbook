@@ -19,6 +19,7 @@ import {
   type Employee,
   type TaskLog,
 } from "@/lib/store";
+import { useSession } from "@/components/team/session";
 
 type TaskInfo = { label: string; tag: string; phaseId: string; slots: number };
 
@@ -69,6 +70,9 @@ function countDone(logs: TaskLog[], taskIndex: Map<string, TaskInfo>) {
 }
 
 export default function TeamBoard() {
+  const { user } = useSession();
+  // Gestor vê só a própria fábrica; master vê todas.
+  const scopeOrg = user?.role === "master" ? null : user?.orgId ?? null;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [logs, setLogs] = useState<TaskLog[]>([]);
   const [phases, setPhases] = useState<Phase[]>(PHASES);
@@ -86,15 +90,18 @@ export default function TeamBoard() {
 
   const load = async () => {
     setLoading(true);
-    const [emps, rows] = await Promise.all([fetchEmployees(), fetchLogs()]);
+    const [emps, rows] = await Promise.all([fetchEmployees(scopeOrg), fetchLogs()]);
     setEmployees(emps);
-    setLogs(rows);
+    // Só os logs da equipe visível (escopo da fábrica).
+    const ids = new Set(emps.map((e) => e.id));
+    setLogs(rows.filter((r) => ids.has(r.employee_id)));
     setLoading(false);
   };
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeOrg]);
 
   const nameById = useMemo(
     () => new Map(employees.map((e) => [e.id, e.name])),
