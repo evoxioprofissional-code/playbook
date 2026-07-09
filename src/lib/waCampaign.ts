@@ -34,6 +34,14 @@ export type CampaignState = {
   nextInSec: number | null; // segundos até o próximo envio (0 = já vai)
 };
 
+/** Traduz erros de rede do Supabase numa mensagem clara pro usuário. */
+function friendlyDbError(msg?: string): string {
+  if (msg && /failed to fetch|networkerror|fetch failed|load failed/i.test(msg)) {
+    return "Sem conexão com o banco de dados. O projeto Supabase pode estar pausado — reative no painel do Supabase e tente de novo.";
+  }
+  return msg || "Falha ao salvar.";
+}
+
 /** Preenche {cliente} pelo nome do contato no momento do envio. */
 function fillClient(message: string, name: string | null) {
   return message.replace(/\{cliente\}/gi, (name || "").trim() || "tudo bem");
@@ -52,24 +60,28 @@ export async function createCampaign(input: {
   if (!targets.length) return { ok: false, error: "Nenhum contato para recuperar." };
 
   const intervalSec = Math.max(1, Math.round(input.intervalSec));
-  const { data: camp, error } = await supabase
-    .from("wa_campaigns")
-    .insert({
-      message: input.message,
-      interval_sec: intervalSec,
-      interval_min: Math.max(1, Math.round(intervalSec / 60)),
-      instance: currentInstance() || null,
-    })
-    .select()
-    .single();
-  if (error || !camp) return { ok: false, error: error?.message || "Falha ao criar campanha." };
+  try {
+    const { data: camp, error } = await supabase
+      .from("wa_campaigns")
+      .insert({
+        message: input.message,
+        interval_sec: intervalSec,
+        interval_min: Math.max(1, Math.round(intervalSec / 60)),
+        instance: currentInstance() || null,
+      })
+      .select()
+      .single();
+    if (error || !camp) return { ok: false, error: friendlyDbError(error?.message) };
 
-  const rows = targets.map((t) => ({ campaign_id: camp.id, jid: t.jid, name: t.name || null }));
-  const { error: te } = await supabase.from("wa_campaign_targets").insert(rows);
-  if (te) return { ok: false, error: te.message };
+    const rows = targets.map((t) => ({ campaign_id: camp.id, jid: t.jid, name: t.name || null }));
+    const { error: te } = await supabase.from("wa_campaign_targets").insert(rows);
+    if (te) return { ok: false, error: friendlyDbError(te.message) };
 
-  if (typeof window !== "undefined") window.dispatchEvent(new Event("j2a-campaign-started"));
-  return { ok: true, id: camp.id };
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("j2a-campaign-started"));
+    return { ok: true, id: camp.id };
+  } catch (e) {
+    return { ok: false, error: friendlyDbError(e instanceof Error ? e.message : String(e)) };
+  }
 }
 
 /** Intervalo efetivo da campanha em segundos (com fallback p/ registros antigos). */
