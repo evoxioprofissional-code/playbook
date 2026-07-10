@@ -15,11 +15,15 @@ export type CampaignTarget = {
   sent_at: string | null;
 };
 
+/** Tipo de disparo — casa com os grupos do Radar. */
+export type DispatchKind = "responder" | "followup" | "recuperacao";
+
 export type Campaign = {
   id: string;
   message: string;
   interval_min: number;
   interval_sec: number;
+  kind: DispatchKind;
   status: "running" | "done" | "canceled";
   created_at: string;
 };
@@ -51,6 +55,7 @@ function fillClient(message: string, name: string | null) {
 export async function createCampaign(input: {
   message: string;
   intervalSec: number;
+  kind: DispatchKind;
   targets: { jid: string; name?: string | null }[];
 }): Promise<{ ok: boolean; error?: string; id?: string }> {
   if (!isSupabaseEnabled || !supabase) return { ok: false, error: "Supabase não conectado." };
@@ -68,6 +73,7 @@ export async function createCampaign(input: {
         interval_sec: intervalSec,
         interval_min: Math.max(1, Math.round(intervalSec / 60)),
         instance: currentInstance() || null,
+        kind: input.kind,
       })
       .select()
       .single();
@@ -124,27 +130,33 @@ export async function fetchActiveCampaign(): Promise<CampaignState | null> {
   return { campaign, total: targets.length, sent, errors, pending, intervalSec, nextInSec };
 }
 
-/** Mapa jid -> data ISO do último envio de recuperação (do vendedor logado). */
-export async function fetchRecoveredJids(): Promise<Record<string, string>> {
+export type DispatchInfo = { kind: DispatchKind; at: string };
+
+/** Mapa jid -> último disparo feito (tipo + data), do vendedor logado. */
+export async function fetchDispatchedJids(): Promise<Record<string, DispatchInfo>> {
   if (!isSupabaseEnabled || !supabase) return {};
   const inst = currentInstance();
   if (!inst) return {};
-  // Campanhas deste vendedor.
+  // Campanhas deste vendedor (id -> tipo).
   const { data: camps } = await supabase
     .from("wa_campaigns")
-    .select("id")
+    .select("id, kind")
     .eq("instance", inst);
-  const ids = (camps || []).map((c: { id: string }) => c.id);
-  if (!ids.length) return {};
+  const kindById = new Map<string, DispatchKind>();
+  for (const c of (camps || []) as { id: string; kind: DispatchKind }[]) kindById.set(c.id, c.kind);
+  if (!kindById.size) return {};
+
   const { data } = await supabase
     .from("wa_campaign_targets")
-    .select("jid, sent_at")
+    .select("jid, sent_at, campaign_id")
     .eq("status", "sent")
-    .in("campaign_id", ids);
-  const map: Record<string, string> = {};
-  for (const r of (data || []) as { jid: string; sent_at: string | null }[]) {
+    .in("campaign_id", Array.from(kindById.keys()));
+
+  const map: Record<string, DispatchInfo> = {};
+  for (const r of (data || []) as { jid: string; sent_at: string | null; campaign_id: string }[]) {
     if (!r.jid || !r.sent_at) continue;
-    if (!map[r.jid] || r.sent_at > map[r.jid]) map[r.jid] = r.sent_at;
+    const kind = kindById.get(r.campaign_id) || "recuperacao";
+    if (!map[r.jid] || r.sent_at > map[r.jid].at) map[r.jid] = { kind, at: r.sent_at };
   }
   return map;
 }

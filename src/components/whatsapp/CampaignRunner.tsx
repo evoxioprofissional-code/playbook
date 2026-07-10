@@ -54,6 +54,13 @@ export default function CampaignRunner() {
 
   if (!state) return null;
 
+  const KIND_TITLE: Record<string, string> = {
+    responder: "Respostas",
+    followup: "Follow-up",
+    recuperacao: "Recuperação",
+  };
+  const title = KIND_TITLE[state.campaign.kind] || "Disparo";
+
   const { sent, errors, total, pending, nextInSec } = state;
   const nextLabel =
     nextInSec == null
@@ -64,7 +71,7 @@ export default function CampaignRunner() {
 
   async function cancel() {
     if (!state) return;
-    if (!confirm("Parar a recuperação automática? As mensagens ainda não enviadas não saem.")) return;
+    if (!confirm("Parar o disparo automático? As mensagens ainda não enviadas não saem.")) return;
     await cancelCampaign(state.campaign.id);
     setState(null);
   }
@@ -73,7 +80,7 @@ export default function CampaignRunner() {
     <div className="fixed bottom-4 right-4 z-50 w-72 rounded-2xl border border-flame-500/40 bg-ink-900/95 p-4 shadow-2xl backdrop-blur">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-2 text-sm font-bold text-white">
-          <Send size={15} className="text-flame-400" /> Recuperação
+          <Send size={15} className="text-flame-400" /> {title}
         </span>
         <button onClick={cancel} title="Parar" className="rounded-lg p-1 text-zinc-500 hover:text-rose-400">
           <X size={16} />

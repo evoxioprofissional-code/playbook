@@ -39,8 +39,10 @@ import {
   createCampaign,
   fetchActiveCampaign,
   cancelCampaign,
-  fetchRecoveredJids,
+  fetchDispatchedJids,
   type CampaignState,
+  type DispatchKind,
+  type DispatchInfo,
 } from "@/lib/waCampaign";
 import { useScripts } from "@/components/scripts/useScripts";
 import { fillBody, loadFieldValues } from "@/lib/scriptsStore";
@@ -56,6 +58,44 @@ const KIND_LABEL: Record<string, string> = {
   audio: "Áudio",
   document: "Documento",
   sticker: "Figurinha",
+};
+
+// Config dos 3 tipos de disparo em massa (casam com os grupos do Radar).
+const DISPATCH_META: Record<
+  DispatchKind,
+  {
+    title: string;
+    button: string;
+    tagLabel: string;
+    tagShort: string;
+    tagCls: string;
+    scriptCat: string | null;
+  }
+> = {
+  responder: {
+    title: "Resposta automática",
+    button: "Responder todos",
+    tagLabel: "respondido",
+    tagShort: "resp",
+    tagCls: "bg-sky-500/20 text-sky-300",
+    scriptCat: null,
+  },
+  followup: {
+    title: "Follow-up automático",
+    button: "Enviar follow-up",
+    tagLabel: "follow-up feito",
+    tagShort: "f-up",
+    tagCls: "bg-gold-500/20 text-gold-300",
+    scriptCat: "followup",
+  },
+  recuperacao: {
+    title: "Recuperação automática",
+    button: "Recuperar todos",
+    tagLabel: "recuperação feita",
+    tagShort: "rec.",
+    tagCls: "bg-violet-500/20 text-violet-300",
+    scriptCat: "recuperacao",
+  },
 };
 
 // Lê uma imagem e reduz pra no máx. 1280px (JPEG) — payload leve e confiável.
@@ -138,9 +178,9 @@ function msgTime(ts: number) {
 export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => void }) {
   const { user } = useSession();
   const { scripts } = useScripts();
-  const [recoverTargets, setRecoverTargets] = useState<WaChat[] | null>(null);
+  const [dispatch, setDispatch] = useState<{ kind: DispatchKind; list: WaChat[] } | null>(null);
   const [campaign, setCampaign] = useState<CampaignState | null>(null);
-  const [recovered, setRecovered] = useState<Record<string, string>>({});
+  const [dispatched, setDispatched] = useState<Record<string, DispatchInfo>>({});
   const [chats, setChats] = useState<WaChat[]>([]);
   const [active, setActive] = useState<WaChat | null>(null);
   const [messages, setMessages] = useState<WaMessage[]>([]);
@@ -251,7 +291,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
     let alive = true;
     const load = () => {
       fetchActiveCampaign().then((s) => alive && setCampaign(s));
-      fetchRecoveredJids().then((m) => alive && setRecovered(m));
+      fetchDispatchedJids().then((m) => alive && setDispatched(m));
     };
     load();
     const id = setInterval(load, 15000);
@@ -266,7 +306,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
 
   async function stopCampaign() {
     if (!campaign) return;
-    if (!confirm("Parar a recuperação? As mensagens ainda não enviadas não vão sair.")) return;
+    if (!confirm("Parar o disparo? As mensagens ainda não enviadas não vão sair.")) return;
     await cancelCampaign(campaign.campaign.id);
     setCampaign(null);
   }
@@ -513,7 +553,10 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
   };
 
   // Sugestão inicial da mensagem de recuperação ({cliente} é trocado por contato).
-  const recoverScripts = scripts.filter((s) => s.category === "recuperacao" && !s.audio);
+  const scriptsFor = (kind: DispatchKind) => {
+    const cat = DISPATCH_META[kind].scriptCat;
+    return scripts.filter((s) => !s.audio && (!cat || s.category === cat));
+  };
   const fillForCampaign = (body: string) =>
     fillBody(body, { ...loadFieldValues(), vendedor: user?.name || "", cliente: "{cliente}" });
 
@@ -558,11 +601,11 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
           {campaign && (
             <button
               onClick={stopCampaign}
-              title="Parar a recuperação automática"
+              title="Parar o disparo automático"
               className="flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-2.5 py-1.5 text-xs font-bold text-rose-300 ring-1 ring-rose-500/40 hover:bg-rose-500/30"
             >
               <Ban size={14} />
-              <span className="hidden sm:inline">Parar recuperação</span>
+              <span className="hidden sm:inline">Parar disparo</span>
               <span className="rounded-full bg-rose-500/30 px-1.5 text-[10px]">
                 {campaign.sent}/{campaign.total}
               </span>
@@ -589,10 +632,10 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
           radar={radar}
           onOpen={openChat}
           aliases={aliases}
-          onRecover={(list) => setRecoverTargets(list)}
+          onDispatch={(kind, list) => setDispatch({ kind, list })}
           campaign={campaign}
           onStop={stopCampaign}
-          recovered={recovered}
+          dispatched={dispatched}
         />
       ) : (
       <div className="flex flex-1 overflow-hidden">
@@ -637,7 +680,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                           <span className="truncate text-sm font-bold text-white">
                             {label(c)}
                           </span>
-                          {recovered[c.jid] && <RecoveredTag compact />}
+                          {dispatched[c.jid] && <DispatchTag info={dispatched[c.jid]} compact />}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}
@@ -714,7 +757,7 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
                     <div className="leading-tight">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-bold text-white">{label(active)}</p>
-                        {recovered[active.jid] && <RecoveredTag at={recovered[active.jid]} />}
+                        {dispatched[active.jid] && <DispatchTag info={dispatched[active.jid]} />}
                       </div>
                       {!active.jid.endsWith("@lid") && (
                         <p className="text-[11px] text-zinc-500">+{active.number}</p>
@@ -1007,13 +1050,14 @@ export default function WhatsappInbox({ onDisconnect }: { onDisconnect: () => vo
       </div>
       )}
 
-      {recoverTargets && (
-        <RecoverModal
-          targets={recoverTargets}
+      {dispatch && (
+        <DispatchModal
+          kind={dispatch.kind}
+          targets={dispatch.list}
           nameOf={(c) => label(c)}
-          scripts={recoverScripts}
+          scripts={scriptsFor(dispatch.kind)}
           fillForCampaign={fillForCampaign}
-          onClose={() => setRecoverTargets(null)}
+          onClose={() => setDispatch(null)}
           onStop={stopCampaign}
         />
       )}
@@ -1025,10 +1069,10 @@ function RadarView({
   radar,
   onOpen,
   aliases,
-  onRecover,
+  onDispatch,
   campaign,
   onStop,
-  recovered,
+  dispatched,
 }: {
   radar: {
     responder: WaChat[];
@@ -1038,13 +1082,13 @@ function RadarView({
   };
   onOpen: (c: WaChat) => void;
   aliases: Record<string, string>;
-  onRecover: (list: WaChat[]) => void;
+  onDispatch: (kind: DispatchKind, list: WaChat[]) => void;
   campaign: CampaignState | null;
   onStop: () => void;
-  recovered: Record<string, string>;
+  dispatched: Record<string, DispatchInfo>;
 }) {
   const label = (c: WaChat) => chatLabel(c, aliases);
-  const groups = [
+  const groups: { key: DispatchKind; title: string; hint: string; dot: string; list: WaChat[] }[] = [
     {
       key: "responder",
       title: "Responder agora",
@@ -1088,28 +1132,30 @@ function RadarView({
                   {g.list.length}
                 </span>
                 <span className="ml-1 text-[11px] text-zinc-500">· {g.hint}</span>
-                {g.key === "recuperacao" &&
-                  g.list.length > 0 &&
-                  (campaign ? (
-                    <div className="ml-auto flex items-center gap-2">
-                      <span className="text-[11px] text-zinc-400">
-                        Enviando {campaign.sent}/{campaign.total}…
-                      </span>
-                      <button
-                        onClick={onStop}
-                        className="flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1.5 text-xs font-bold text-rose-300 ring-1 ring-rose-500/40 hover:bg-rose-500/30"
-                      >
-                        <Ban size={13} /> Parar recuperação
-                      </button>
-                    </div>
-                  ) : (
+                {campaign && campaign.campaign.kind === g.key ? (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-[11px] text-zinc-400">
+                      Enviando {campaign.sent}/{campaign.total}…
+                    </span>
                     <button
-                      onClick={() => onRecover(g.list)}
-                      className="ml-auto flex items-center gap-1.5 rounded-lg bg-flame-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-flame-400"
+                      onClick={onStop}
+                      className="flex items-center gap-1.5 rounded-lg bg-rose-500/20 px-3 py-1.5 text-xs font-bold text-rose-300 ring-1 ring-rose-500/40 hover:bg-rose-500/30"
                     >
-                      <Send size={13} /> Recuperar todos ({g.list.length})
+                      <Ban size={13} /> Parar
                     </button>
-                  ))}
+                  </div>
+                ) : campaign ? (
+                  <span className="ml-auto text-[11px] text-zinc-600">
+                    outro disparo em andamento…
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => onDispatch(g.key, g.list)}
+                    className="ml-auto flex items-center gap-1.5 rounded-lg bg-flame-500 px-3 py-1.5 text-xs font-bold text-black hover:bg-flame-400"
+                  >
+                    <Send size={13} /> {DISPATCH_META[g.key].button} ({g.list.length})
+                  </button>
+                )}
               </div>
               <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
                 {g.list.map((c) => (
@@ -1127,7 +1173,7 @@ function RadarView({
                           <span className="truncate text-sm font-bold text-white">
                             {label(c)}
                           </span>
-                          {recovered[c.jid] && <RecoveredTag compact />}
+                          {dispatched[c.jid] && <DispatchTag info={dispatched[c.jid]} compact />}
                         </span>
                         <span className="shrink-0 text-[10px] text-zinc-500">
                           {chatTime(c.time)}
@@ -1148,24 +1194,28 @@ function RadarView({
   );
 }
 
-// Etiqueta "recuperação feita" no contato.
-function RecoveredTag({ at, compact }: { at?: string; compact?: boolean }) {
-  const date = at
-    ? new Date(at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
+// Etiqueta do último disparo feito no contato (recuperação / follow-up / resposta).
+function DispatchTag({ info, compact }: { info: DispatchInfo; compact?: boolean }) {
+  const meta = DISPATCH_META[info.kind];
+  const date = info.at
+    ? new Date(info.at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
     : "";
   if (compact) {
     return (
       <span
-        title={`Recuperação feita${date ? ` em ${date}` : ""}`}
-        className="flex shrink-0 items-center gap-0.5 rounded bg-violet-500/20 px-1 py-0.5 text-[9px] font-bold text-violet-300"
+        title={`${meta.tagLabel}${date ? ` em ${date}` : ""}`}
+        className={`flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold ${meta.tagCls}`}
       >
-        <Check size={9} strokeWidth={3} /> rec.
+        <Check size={9} strokeWidth={3} /> {meta.tagShort}
       </span>
     );
   }
   return (
-    <span className="flex shrink-0 items-center gap-1 rounded-md bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-bold text-violet-300">
-      <Check size={11} strokeWidth={3} /> Recuperação feita{date ? ` · ${date}` : ""}
+    <span
+      className={`flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold ${meta.tagCls}`}
+    >
+      <Check size={11} strokeWidth={3} /> {meta.tagLabel}
+      {date ? ` · ${date}` : ""}
     </span>
   );
 }
@@ -1178,7 +1228,8 @@ function fmtDur(totalSec: number) {
   return `${Math.floor(min / 60)}h${String(min % 60).padStart(2, "0")}`;
 }
 
-function RecoverModal({
+function DispatchModal({
+  kind,
   targets,
   nameOf,
   scripts,
@@ -1186,6 +1237,7 @@ function RecoverModal({
   onClose,
   onStop,
 }: {
+  kind: DispatchKind;
   targets: WaChat[];
   nameOf: (c: WaChat) => string;
   scripts: { id: string; title: string; body: string }[];
@@ -1193,6 +1245,7 @@ function RecoverModal({
   onClose: () => void;
   onStop: () => void;
 }) {
+  const meta = DISPATCH_META[kind];
   const [message, setMessage] = useState("");
   const [intervalVal, setIntervalVal] = useState(8);
   const [unit, setUnit] = useState<"min" | "seg">("min");
@@ -1216,13 +1269,14 @@ function RecoverModal({
     const r = await createCampaign({
       message: message.trim(),
       intervalSec,
+      kind,
       targets: targets.map((c) => ({ jid: c.jid, name: nameOf(c) })),
     });
     setLaunching(false);
     if (r.ok) {
       onClose();
       alert(
-        `Recuperação iniciada! ${n} contatos — 1 mensagem a cada ${everyLabel}. Pode fechar essa tela; o envio continua enquanto o app estiver aberto.`
+        `Disparo iniciado! ${n} contatos — 1 mensagem a cada ${everyLabel}. Pode fechar essa tela; o envio continua enquanto o app estiver aberto.`
       );
     } else {
       setError(r.error || "Falha ao iniciar.");
@@ -1233,8 +1287,8 @@ function RecoverModal({
     <Modal
       open
       onClose={onClose}
-      title="Recuperação automática"
-      subtitle={`Enviar pra ${n} ${n === 1 ? "contato" : "contatos"} em recuperação, com intervalo de segurança.`}
+      title={meta.title}
+      subtitle={`Enviar pra ${n} ${n === 1 ? "contato" : "contatos"}, com intervalo de segurança.`}
       footer={
         running ? (
           <div className="flex items-center gap-2">
@@ -1245,7 +1299,7 @@ function RecoverModal({
               }}
               className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-rose-500/20 py-2.5 text-sm font-bold text-rose-300 ring-1 ring-rose-500/40 hover:bg-rose-500/30"
             >
-              <Ban size={15} /> Parar recuperação
+              <Ban size={15} /> Parar disparo
             </button>
             <button
               onClick={onClose}
@@ -1271,15 +1325,15 @@ function RecoverModal({
     >
       {running ? (
         <p className="rounded-xl border border-gold-500/30 bg-gold-500/10 px-4 py-3 text-sm text-zinc-200">
-          Já existe uma recuperação <b className="text-white">em andamento</b>. Espere
-          terminar ou pare pelo card no canto da tela antes de iniciar outra.
+          Já existe um disparo <b className="text-white">em andamento</b>. Espere
+          terminar ou pare antes de iniciar outro (o WhatsApp envia um de cada vez, pra proteger o número).
         </p>
       ) : (
         <div className="space-y-3">
           {scripts.length > 0 && (
             <div>
               <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
-                Usar um script de recuperação
+                Usar um script pronto
               </p>
               <div className="flex flex-wrap gap-2">
                 {scripts.map((s) => (
